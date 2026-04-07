@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "392be8980a3b",
+  "session_id": "37a3bc7e-576c-4712-b65f-2c79acfa2b06",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-07T16:47:57.653006Z",
+  "branch": "fix/cli-config-not-found-error-981",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "packages/cli/src/index.ts"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2ff24819a0fe",
+  "token_usage": {
+    "input_tokens": 83,
+    "cache_creation_tokens": 138439,
+    "cache_read_tokens": 3616159,
+    "output_tokens": 18197,
+    "api_call_count": 68
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-07T16:47:57.47467Z",
+    "agent_lines": 0,
+    "human_added": 28,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 28,
+    "agent_percentage": 0
+  }
+}

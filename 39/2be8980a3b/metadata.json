@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "392be8980a3b",
+  "strategy": "manual-commit",
+  "branch": "fix/cli-config-not-found-error-981",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "packages/cli/src/index.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/39/2be8980a3b/0/metadata.json",
+      "transcript": "/39/2be8980a3b/0/full.jsonl",
+      "content_hash": "/39/2be8980a3b/0/content_hash.txt",
+      "prompt": "/39/2be8980a3b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 83,
+    "cache_creation_tokens": 138439,
+    "cache_read_tokens": 3616159,
+    "output_tokens": 18197,
+    "api_call_count": 68
+  }
+}

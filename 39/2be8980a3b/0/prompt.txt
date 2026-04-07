@@ -1,0 +1,21 @@
+/gh-fix-ci
+
+---
+
+There are some changes suggested by copilot. Could you help me resolve them? First of all, I need to understand what changes he is suggesting in index.test.ts file.
+
+---
+
+explain the code both the agents, claude and copilot have written.
+
+---
+
+why do we got to wait for 1ms and how did you got to know that it would be enough?
+
+---
+
+/gh-fix-ci
+
+---
+
+fix this and push it
