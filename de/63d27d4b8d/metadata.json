@@ -3,21 +3,30 @@
   "checkpoint_id": "de63d27d4b8d",
   "strategy": "manual-commit",
   "branch": "emdash/fix-ignored-agent-selection-claude-25k",
-  "checkpoints_count": 1,
-  "files_touched": null,
+  "checkpoints_count": 4,
+  "files_touched": [
+    "packages/core/src/__tests__/session-manager/spawn.test.ts",
+    "packages/core/src/session-manager.ts"
+  ],
   "sessions": [
     {
       "metadata": "/de/63d27d4b8d/0/metadata.json",
       "transcript": "/de/63d27d4b8d/0/full.jsonl",
       "content_hash": "/de/63d27d4b8d/0/content_hash.txt",
       "prompt": "/de/63d27d4b8d/0/prompt.txt"
+    },
+    {
+      "metadata": "/de/63d27d4b8d/1/metadata.json",
+      "transcript": "/de/63d27d4b8d/1/full.jsonl",
+      "content_hash": "/de/63d27d4b8d/1/content_hash.txt",
+      "prompt": "/de/63d27d4b8d/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 57,
-    "cache_creation_tokens": 67892,
-    "cache_read_tokens": 2854388,
-    "output_tokens": 19672,
-    "api_call_count": 54
+    "input_tokens": 95,
+    "cache_creation_tokens": 193492,
+    "cache_read_tokens": 4424423,
+    "output_tokens": 32120,
+    "api_call_count": 85
   }
 }

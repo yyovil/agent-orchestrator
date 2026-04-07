@@ -1,0 +1,9 @@
+/gh-fix-ci there're some merge conflicts as well. I would like to solve them from my code editor instead of resolving them over there in the github.
+
+---
+
+how come this lint check failure wasn't caught during the local check run? could you try running `pnpm lint` cmd locally and determine the reason? we need to fix this in another PR.
+
+---
+
+I would prefer to keep this aside for now as this isn't something that's related to current PR #904. We gotta get this fixed first of all.
