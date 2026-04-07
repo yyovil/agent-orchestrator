@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "de63d27d4b8d",
+  "strategy": "manual-commit",
+  "branch": "emdash/fix-ignored-agent-selection-claude-25k",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/de/63d27d4b8d/0/metadata.json",
+      "transcript": "/de/63d27d4b8d/0/full.jsonl",
+      "content_hash": "/de/63d27d4b8d/0/content_hash.txt",
+      "prompt": "/de/63d27d4b8d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 57,
+    "cache_creation_tokens": 67892,
+    "cache_read_tokens": 2854388,
+    "output_tokens": 19672,
+    "api_call_count": 54
+  }
+}

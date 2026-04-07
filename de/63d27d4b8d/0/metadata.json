@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "de63d27d4b8d",
+  "session_id": "2f69e4e5-b763-4415-af06-e16d85157d66",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-07T10:04:14.580645Z",
+  "branch": "emdash/fix-ignored-agent-selection-claude-25k",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-6[1m]",
+  "turn_id": "588c8a2822f3",
+  "token_usage": {
+    "input_tokens": 57,
+    "cache_creation_tokens": 67892,
+    "cache_read_tokens": 2854388,
+    "output_tokens": 19672,
+    "api_call_count": 54
+  },
+  "session_metrics": {
+    "turn_count": 1
+  }
+}
