@@ -14,6 +14,12 @@
       "transcript": "/2a/cdb7413776/0/full.jsonl",
       "content_hash": "/2a/cdb7413776/0/content_hash.txt",
       "prompt": "/2a/cdb7413776/0/prompt.txt"
+    },
+    {
+      "metadata": "/2a/cdb7413776/1/metadata.json",
+      "transcript": "/2a/cdb7413776/1/full.jsonl",
+      "content_hash": "/2a/cdb7413776/1/content_hash.txt",
+      "prompt": ""
     }
   ],
   "token_usage": {
