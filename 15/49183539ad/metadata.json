@@ -5,7 +5,8 @@
   "branch": "fix/cli-config-not-found-error-981",
   "checkpoints_count": 1,
   "files_touched": [
-    "packages/cli/__tests__/index.test.ts"
+    "packages/cli/__tests__/index.test.ts",
+    "packages/cli/src/index.ts"
   ],
   "sessions": [
     {
@@ -13,6 +14,12 @@
       "transcript": "/15/49183539ad/0/full.jsonl",
       "content_hash": "/15/49183539ad/0/content_hash.txt",
       "prompt": "/15/49183539ad/0/prompt.txt"
+    },
+    {
+      "metadata": "/15/49183539ad/1/metadata.json",
+      "transcript": "/15/49183539ad/1/full.jsonl",
+      "content_hash": "/15/49183539ad/1/content_hash.txt",
+      "prompt": ""
     }
   ],
   "token_usage": {
