@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "a07342d95898",
+  "strategy": "manual-commit",
+  "branch": "yyovil/agent-forge",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CLAUDE.md",
+    "README.md",
+    "packages/cli/package.json",
+    "packages/cli/src/assets/plugin-registry.json",
+    "packages/cli/src/commands/start.ts",
+    "packages/cli/src/lib/config-instruction.ts",
+    "packages/cli/src/lib/detect-agent.ts",
+    "packages/cli/src/lib/plugins.ts",
+    "packages/cli/vitest.config.ts",
+    "packages/core/src/config.ts",
+    "packages/core/src/index.ts",
+    "packages/core/src/metadata.ts",
+    "packages/core/src/plugin-registry.ts",
+    "packages/core/src/session-manager.ts",
+    "packages/core/src/types.ts",
+    "packages/core/src/utils/session-from-metadata.ts",
+    "packages/integration-tests/package.json",
+    "packages/web/next.config.js",
+    "packages/web/package.json",
+    "packages/web/src/__tests__/services.test.ts",
+    "packages/web/src/lib/services.ts",
+    "packages/web/vitest.config.ts",
+    "pnpm-lock.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a0/7342d95898/0/metadata.json",
+      "transcript": "/a0/7342d95898/0/full.jsonl",
+      "content_hash": "/a0/7342d95898/0/content_hash.txt",
+      "prompt": "/a0/7342d95898/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 19,
+    "cache_creation_tokens": 41844,
+    "cache_read_tokens": 292647,
+    "output_tokens": 6652,
+    "api_call_count": 9
+  }
+}

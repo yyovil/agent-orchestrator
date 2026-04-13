@@ -1,0 +1,55 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "a07342d95898",
+  "session_id": "2b35d671-915e-4a96-8dfe-bc2743dd894a",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-13T18:16:30.656271Z",
+  "branch": "yyovil/agent-forge",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CLAUDE.md",
+    "README.md",
+    "packages/cli/package.json",
+    "packages/cli/src/assets/plugin-registry.json",
+    "packages/cli/src/commands/start.ts",
+    "packages/cli/src/lib/config-instruction.ts",
+    "packages/cli/src/lib/detect-agent.ts",
+    "packages/cli/src/lib/plugins.ts",
+    "packages/cli/vitest.config.ts",
+    "packages/core/src/config.ts",
+    "packages/core/src/index.ts",
+    "packages/core/src/metadata.ts",
+    "packages/core/src/plugin-registry.ts",
+    "packages/core/src/session-manager.ts",
+    "packages/core/src/types.ts",
+    "packages/core/src/utils/session-from-metadata.ts",
+    "packages/integration-tests/package.json",
+    "packages/web/next.config.js",
+    "packages/web/package.json",
+    "packages/web/src/__tests__/services.test.ts",
+    "packages/web/src/lib/services.ts",
+    "packages/web/vitest.config.ts",
+    "pnpm-lock.yaml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a1c776ebd120",
+  "token_usage": {
+    "input_tokens": 19,
+    "cache_creation_tokens": 41844,
+    "cache_read_tokens": 292647,
+    "output_tokens": 6652,
+    "api_call_count": 9
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-13T18:16:30.56176Z",
+    "agent_lines": 0,
+    "human_added": 1365,
+    "human_modified": 15,
+    "human_removed": 0,
+    "total_committed": 1369,
+    "agent_percentage": 0
+  }
+}
