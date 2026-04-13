@@ -1,0 +1,58 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "384da12b93c3",
+  "session_id": "c1197bb3-3661-4a91-96f4-3132967f126a",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-13T12:53:45.864974Z",
+  "branch": "yyovil/fix-node-eslint",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "packages/cli/tsconfig.json",
+    "packages/core/tsconfig.json",
+    "packages/integration-tests/tsconfig.json",
+    "packages/plugins/agent-aider/tsconfig.json",
+    "packages/plugins/agent-claude-code/tsconfig.json",
+    "packages/plugins/agent-codex/tsconfig.json",
+    "packages/plugins/agent-cursor/tsconfig.json",
+    "packages/plugins/agent-opencode/tsconfig.json",
+    "packages/plugins/notifier-composio/tsconfig.json",
+    "packages/plugins/notifier-desktop/tsconfig.json",
+    "packages/plugins/notifier-discord/tsconfig.json",
+    "packages/plugins/notifier-openclaw/tsconfig.json",
+    "packages/plugins/notifier-slack/tsconfig.json",
+    "packages/plugins/notifier-webhook/tsconfig.json",
+    "packages/plugins/runtime-process/tsconfig.json",
+    "packages/plugins/runtime-tmux/tsconfig.json",
+    "packages/plugins/scm-github/tsconfig.json",
+    "packages/plugins/scm-gitlab/tsconfig.json",
+    "packages/plugins/terminal-iterm2/tsconfig.json",
+    "packages/plugins/terminal-web/tsconfig.json",
+    "packages/plugins/tracker-github/tsconfig.json",
+    "packages/plugins/tracker-gitlab/tsconfig.json",
+    "packages/plugins/tracker-linear/tsconfig.json",
+    "packages/plugins/workspace-clone/tsconfig.json",
+    "packages/plugins/workspace-worktree/tsconfig.json",
+    "packages/web/tsconfig.server.json"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5d571ac149ff",
+  "token_usage": {
+    "input_tokens": 7,
+    "cache_creation_tokens": 19106,
+    "cache_read_tokens": 90662,
+    "output_tokens": 598,
+    "api_call_count": 4
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-13T12:53:45.815805Z",
+    "agent_lines": 0,
+    "human_added": 6,
+    "human_modified": 26,
+    "human_removed": 0,
+    "total_committed": 6,
+    "agent_percentage": 0
+  }
+}
