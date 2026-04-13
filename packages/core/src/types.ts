@@ -1280,6 +1280,10 @@ export interface OpenCodeAgentConfig extends AgentSpecificConfig {
   opencodeSessionId?: string;
 }
 
+export interface ForgeAgentConfig extends AgentSpecificConfig {
+  forgeConversationId?: string;
+}
+
 /**
  * Canonical cross-agent permission policy mode.
  *
@@ -1389,6 +1393,8 @@ export interface SessionMetadata {
   terminalWsPort?: number;
   directTerminalWsPort?: number;
   opencodeSessionId?: string;
+  forgeConversationId?: string;
+  forgeModel?: string;
   pinnedSummary?: string; // First quality summary, pinned for display stability
   userPrompt?: string; // Prompt used when spawning without a tracker issue
 }

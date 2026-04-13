@@ -228,7 +228,7 @@ describe("check (single session)", () => {
 
   it("detects killed via terminal fallback when getActivityState returns null", async () => {
     vi.mocked(plugins.agent.getActivityState).mockResolvedValue(null);
-    vi.mocked(plugins.agent.detectActivity).mockReturnValue("idle");
+    vi.mocked(plugins.agent.detectActivity!).mockReturnValue("idle");
     vi.mocked(plugins.agent.isProcessRunning).mockResolvedValue(false);
 
     const lm = setupCheck("app-1", {
@@ -241,7 +241,7 @@ describe("check (single session)", () => {
 
   it("stays working when agent is idle but process is still running (fallback path)", async () => {
     vi.mocked(plugins.agent.getActivityState).mockResolvedValue(null);
-    vi.mocked(plugins.agent.detectActivity).mockReturnValue("idle");
+    vi.mocked(plugins.agent.detectActivity!).mockReturnValue("idle");
     vi.mocked(plugins.agent.isProcessRunning).mockResolvedValue(true);
 
     const lm = setupCheck("app-1", {

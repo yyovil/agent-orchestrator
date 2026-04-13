@@ -12,7 +12,7 @@
  */
 
 import { statSync, existsSync, readdirSync, writeFileSync, mkdirSync, utimesSync, unlinkSync } from "node:fs";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { promisify } from "node:util";
@@ -61,6 +61,7 @@ import {
   generateTmuxName,
   validateAndStoreOrigin,
 } from "./paths.js";
+import { asValidForgeSessionId } from "./forge-session-id.js";
 import { asValidOpenCodeSessionId } from "./opencode-session-id.js";
 import { normalizeOrchestratorSessionStrategy } from "./orchestrator-session-strategy.js";
 import { sessionFromMetadata } from "./utils/session-from-metadata.js";
@@ -71,6 +72,67 @@ import { resolveAgentSelection, resolveSessionRole } from "./agent-selection.js"
 const execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 10_000;
 const OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS = 10_000;
+const FORGE_CONVERSATION_CREATE_TIMEOUT_MS = 30_000;
+
+function parseForgeConversationId(raw: string): string | undefined {
+  const matches =
+    raw.match(/\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g) ??
+    [];
+  return matches.map((match) => asValidForgeSessionId(match)).find(Boolean);
+}
+
+async function createForgeConversationId(): Promise<string> {
+  const stdout = await new Promise<string>((resolve, reject) => {
+    const child = spawn("forge", ["conversation", "new"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let output = "";
+    let errorOutput = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error("Command timed out: forge conversation new"));
+    }, FORGE_CONVERSATION_CREATE_TIMEOUT_MS);
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      output += chunk;
+    });
+
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      errorOutput += chunk;
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve(output);
+        return;
+      }
+
+      const details = errorOutput.trim() || output.trim();
+      reject(
+        new Error(
+          details.length > 0
+            ? `Command failed: forge conversation new\n${details}`
+            : `Command failed: forge conversation new${signal ? ` (${signal})` : ""}`,
+        ),
+      );
+    });
+  });
+
+  const conversationId = parseForgeConversationId(stdout);
+  if (!conversationId) {
+    throw new Error("Forge conversation creation did not return a valid conversation ID");
+  }
+  return conversationId;
+}
 
 function errorIncludesSessionNotFound(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -715,8 +777,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         // Every candidate ID we would generate collides — fail immediately with a clear message.
         throw new Error(
           `Cannot spawn orchestrator for project "${project.sessionPrefix}": the orchestrator ID prefix "${orchestratorPrefix}" ` +
-            `conflicts with the session prefix of project "${otherProjectId}" ("${otherPrefix}"). ` +
-            `Rename one of the project sessionPrefix values to avoid this overlap.`,
+          `conflicts with the session prefix of project "${otherProjectId}" ("${otherPrefix}"). ` +
+          `Rename one of the project sessionPrefix values to avoid this overlap.`,
         );
       }
     }
@@ -1004,10 +1066,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       const slug = isBranchSafe
         ? id
         : id
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .slice(0, 60)
-            .replace(/^-+|-+$/g, "");
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .slice(0, 60)
+          .replace(/^-+|-+$/g, "");
       branch = `feat/${slug || sessionId}`;
     } else {
       branch = `session/${sessionId}`;
@@ -1075,11 +1137,34 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     const reusedOpenCodeSessionId =
       plugins.agent.name === "opencode" && spawnConfig.issueId
         ? await resolveOpenCodeSessionReuse({
-            sessionsDir,
-            criteria: { issueId: spawnConfig.issueId },
-            strategy: opencodeIssueSessionStrategy,
-          })
+          sessionsDir,
+          criteria: { issueId: spawnConfig.issueId },
+          strategy: opencodeIssueSessionStrategy,
+        })
         : undefined;
+    let forgeConversationId: string | undefined;
+    const forgeModel = plugins.agent.name === "forge" ? selection.model : undefined;
+    try {
+      forgeConversationId =
+        plugins.agent.name === "forge" ? await createForgeConversationId() : undefined;
+    } catch (err) {
+      if (
+        plugins.workspace &&
+        shouldDestroyWorkspacePath(project, spawnConfig.projectId, workspacePath)
+      ) {
+        try {
+          await plugins.workspace.destroy(workspacePath);
+        } catch {
+          /* best effort */
+        }
+      }
+      try {
+        deleteMetadata(sessionsDir, sessionId, false);
+      } catch {
+        /* best effort */
+      }
+      throw err;
+    }
     const agentLaunchConfig = {
       sessionId,
       projectConfig: {
@@ -1087,6 +1172,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         agentConfig: {
           ...selection.agentConfig,
           ...(reusedOpenCodeSessionId ? { opencodeSessionId: reusedOpenCodeSessionId } : {}),
+          ...(forgeConversationId ? { forgeConversationId } : {}),
         },
       },
       issueId: spawnConfig.issueId,
@@ -1154,6 +1240,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       lastActivityAt: new Date(),
       metadata: {
         ...(reusedOpenCodeSessionId ? { opencodeSessionId: reusedOpenCodeSessionId } : {}),
+        ...(forgeConversationId ? { forgeConversationId } : {}),
+        ...(forgeModel ? { forgeModel } : {}),
         ...(spawnConfig.prompt ? { userPrompt: spawnConfig.prompt } : {}),
       },
     };
@@ -1170,6 +1258,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         createdAt: new Date().toISOString(),
         runtimeHandle: JSON.stringify(handle),
         opencodeSessionId: reusedOpenCodeSessionId,
+        forgeConversationId,
+        forgeModel,
         userPrompt: spawnConfig.prompt,
       });
 
@@ -1248,7 +1338,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       if (!promptDelivered) {
         console.error(
           `[session-manager] FAILED to deliver prompt to session ${sessionId} after ${maxRetries} attempts. ` +
-            `User must send manually with 'ao send'. Last error: ${lastError?.message}`,
+          `User must send manually with 'ao send'. Last error: ${lastError?.message}`,
         );
       }
 
@@ -1388,10 +1478,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       reusableOpenCodeSessionId =
         plugins.agent.name === "opencode" && orchestratorSessionStrategy === "reuse"
           ? await resolveOpenCodeSessionReuse({
-              sessionsDir,
-              criteria: { sessionId },
-              strategy: "reuse",
-            })
+            sessionsDir,
+            criteria: { sessionId },
+            strategy: "reuse",
+          })
           : undefined;
       if (plugins.agent.name === "opencode" && orchestratorSessionStrategy === "delete") {
         await resolveOpenCodeSessionReuse({
@@ -1401,6 +1491,16 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           includeTitleDiscoveryForSessionId: true,
         });
       }
+    } catch (err) {
+      await cleanupWorktreeAndMetadata(systemPromptFile);
+      throw err;
+    }
+
+    let forgeConversationId: string | undefined;
+    const forgeModel = plugins.agent.name === "forge" ? selection.model : undefined;
+    try {
+      forgeConversationId =
+        plugins.agent.name === "forge" ? await createForgeConversationId() : undefined;
     } catch (err) {
       await cleanupWorktreeAndMetadata(systemPromptFile);
       throw err;
@@ -1416,6 +1516,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           ...selection.agentConfig,
           permissions: "permissionless" as const,
           ...(reusableOpenCodeSessionId ? { opencodeSessionId: reusableOpenCodeSessionId } : {}),
+          ...(forgeConversationId ? { forgeConversationId } : {}),
         },
       },
       permissions: "permissionless" as const,
@@ -1467,6 +1568,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       lastActivityAt: new Date(),
       metadata: {
         ...(reusableOpenCodeSessionId ? { opencodeSessionId: reusableOpenCodeSessionId } : {}),
+        ...(forgeConversationId ? { forgeConversationId } : {}),
+        ...(forgeModel ? { forgeModel } : {}),
       },
     };
 
@@ -1482,6 +1585,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         createdAt: new Date().toISOString(),
         runtimeHandle: JSON.stringify(handle),
         opencodeSessionId: reusableOpenCodeSessionId,
+        forgeConversationId,
+        forgeModel,
       });
 
       if (plugins.agent.postLaunchSetup) {
@@ -1568,7 +1673,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         effectiveAgentName,
         plugins,
         sessionListPromise,
-      ).catch(() => {});
+      ).catch(() => { });
       try {
         await Promise.race([enrichPromise, enrichTimeout]);
       } finally {
@@ -1641,7 +1746,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         const runtimePlugin = registry.get<Runtime>(
           "runtime",
           handle.runtimeName ??
-            (project ? (project.runtime ?? config.defaults.runtime) : config.defaults.runtime),
+          (project ? (project.runtime ?? config.defaults.runtime) : config.defaults.runtime),
         );
         if (runtimePlugin) {
           try {
@@ -2311,6 +2416,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         updateMetadata(sessionsDir, sessionId, { opencodeSessionId: discovered });
       }
     }
+    if (selectedAgent === "forge" && !asValidForgeSessionId(raw["forgeConversationId"])) {
+      throw new SessionNotRestorableError(sessionId, "Forge conversation mapping is missing");
+    }
 
     // 2. Reconstruct Session from metadata and enrich with live runtime state.
     //    metadataToSession sets activity: null, so without enrichment a crashed
@@ -2345,6 +2453,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         createdAt: raw["createdAt"],
         runtimeHandle: raw["runtimeHandle"],
         opencodeSessionId: raw["opencodeSessionId"],
+        forgeConversationId: raw["forgeConversationId"],
+        forgeModel: raw["forgeModel"],
         pinnedSummary: raw["pinnedSummary"],
       });
     }
@@ -2415,6 +2525,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
           ...(session.metadata?.opencodeSessionId
             ? { opencodeSessionId: session.metadata.opencodeSessionId }
             : {}),
+          ...(session.metadata?.forgeConversationId
+            ? { forgeConversationId: session.metadata.forgeConversationId }
+            : {}),
+          ...(session.metadata?.forgeModel ? { model: session.metadata.forgeModel } : {}),
         },
       },
       issueId: session.issueId ?? undefined,

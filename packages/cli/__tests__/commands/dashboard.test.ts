@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -166,6 +166,56 @@ describe("rebuildDashboardProductionArtifacts", () => {
     await expect(
       rebuildDashboardProductionArtifacts("/usr/local/lib/node_modules/@aoagents/ao-web"),
     ).rejects.toThrow("Dashboard rebuild is only available from a source checkout");
+  });
+});
+
+describe("dashboardProductionArtifactsAreStale", () => {
+  it("returns true when watched source files are newer than the production build", async () => {
+    const webDir = join(tmpDir, "packages", "web");
+    const sourceFile = join(webDir, "src", "app.ts");
+    const buildId = join(webDir, ".next", "BUILD_ID");
+    const startAll = join(webDir, "dist-server", "start-all.js");
+
+    mkdirSync(join(webDir, "src"), { recursive: true });
+    mkdirSync(join(webDir, ".next"), { recursive: true });
+    mkdirSync(join(webDir, "dist-server"), { recursive: true });
+    writeFileSync(sourceFile, "export {};\n");
+    writeFileSync(buildId, "build-id\n");
+    writeFileSync(startAll, "console.log('start');\n");
+
+    const builtAt = new Date("2026-04-13T10:00:00.000Z");
+    const updatedAt = new Date("2026-04-13T10:05:00.000Z");
+    utimesSync(buildId, builtAt, builtAt);
+    utimesSync(startAll, builtAt, builtAt);
+    utimesSync(sourceFile, updatedAt, updatedAt);
+
+    const { dashboardProductionArtifactsAreStale } = await import("../../src/lib/dashboard-rebuild.js");
+
+    expect(dashboardProductionArtifactsAreStale(webDir)).toBe(true);
+  });
+
+  it("returns false when the production build is newer than watched source files", async () => {
+    const webDir = join(tmpDir, "packages", "web");
+    const sourceFile = join(webDir, "src", "app.ts");
+    const buildId = join(webDir, ".next", "BUILD_ID");
+    const startAll = join(webDir, "dist-server", "start-all.js");
+
+    mkdirSync(join(webDir, "src"), { recursive: true });
+    mkdirSync(join(webDir, ".next"), { recursive: true });
+    mkdirSync(join(webDir, "dist-server"), { recursive: true });
+    writeFileSync(sourceFile, "export {};\n");
+    writeFileSync(buildId, "build-id\n");
+    writeFileSync(startAll, "console.log('start');\n");
+
+    const sourceAt = new Date("2026-04-13T10:00:00.000Z");
+    const builtAt = new Date("2026-04-13T10:05:00.000Z");
+    utimesSync(sourceFile, sourceAt, sourceAt);
+    utimesSync(buildId, builtAt, builtAt);
+    utimesSync(startAll, builtAt, builtAt);
+
+    const { dashboardProductionArtifactsAreStale } = await import("../../src/lib/dashboard-rebuild.js");
+
+    expect(dashboardProductionArtifactsAreStale(webDir)).toBe(false);
   });
 });
 

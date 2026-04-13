@@ -127,7 +127,7 @@ describe("send", () => {
       runtimeHandle: JSON.stringify(makeHandle("rt-1")),
     });
     vi.mocked(mockRuntime.getOutput).mockResolvedValue("steady output");
-    vi.mocked(mockAgent.detectActivity).mockReturnValue("idle");
+    vi.mocked(mockAgent.detectActivity!).mockReturnValue("idle");
 
     const sm = createSessionManager({ config, registry: mockRegistry });
     // Should resolve without throwing — the message was already sent via
@@ -266,7 +266,7 @@ describe("send", () => {
     });
 
     vi.mocked(mockRuntime.getOutput).mockResolvedValue("steady output");
-    vi.mocked(mockAgent.detectActivity).mockReturnValue("idle");
+    vi.mocked(mockAgent.detectActivity!).mockReturnValue("idle");
 
     const sm = createSessionManager({ config, registry: mockRegistry });
     const startedAt = Date.now();
@@ -312,7 +312,7 @@ describe("send", () => {
     });
 
     vi.mocked(mockRuntime.getOutput).mockResolvedValue("steady output");
-    vi.mocked(mockAgent.detectActivity).mockReturnValue("idle");
+    vi.mocked(mockAgent.detectActivity!).mockReturnValue("idle");
 
     const sm = createSessionManager({ config, registry: mockRegistry });
     const startedAt = Date.now();

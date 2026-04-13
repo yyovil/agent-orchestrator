@@ -46,7 +46,12 @@ export function sessionFromMetadata(
         : meta["runtimeHandle"]
           ? safeJsonParse<RuntimeHandle>(meta["runtimeHandle"])
           : null,
-    agentInfo: meta["summary"] ? { summary: meta["summary"], agentSessionId: null } : null,
+    agentInfo: meta["summary"]
+      ? {
+          summary: meta["summary"],
+          agentSessionId: meta["forgeConversationId"] ?? meta["opencodeSessionId"] ?? null,
+        }
+      : null,
     createdAt: meta["createdAt"] ? new Date(meta["createdAt"]) : (options.createdAt ?? new Date()),
     lastActivityAt: options.lastActivityAt ?? new Date(),
     restoredAt:

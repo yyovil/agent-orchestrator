@@ -48,7 +48,10 @@ import {
   findFreePort,
   MAX_PORT_SCAN,
 } from "../lib/web-dir.js";
-import { rebuildDashboardProductionArtifacts } from "../lib/dashboard-rebuild.js";
+import {
+  rebuildDashboardProductionArtifacts,
+  dashboardProductionArtifactsAreStale,
+} from "../lib/dashboard-rebuild.js";
 import { preflight } from "../lib/preflight.js";
 import { register, unregister, isAlreadyRunning, getRunning, waitForExit } from "../lib/running-state.js";
 import { preventIdleSleep } from "../lib/prevent-sleep.js";
@@ -983,6 +986,10 @@ async function runStartup(
       await rebuildDashboardProductionArtifacts(webDir);
     } else if (!willUseDevServer) {
       await preflight.checkBuilt(webDir);
+      if (isMonorepo && dashboardProductionArtifactsAreStale(webDir)) {
+        console.log(chalk.dim("  Production dashboard artifacts are stale - rebuilding...\n"));
+        await rebuildDashboardProductionArtifacts(webDir);
+      }
     }
 
     spinner.start("Starting dashboard");

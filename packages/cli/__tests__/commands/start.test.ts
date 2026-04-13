@@ -24,6 +24,9 @@ const {
   mockWaitForPortAndOpen,
   mockSpawn,
   mockEnsureLifecycleWorker,
+  mockStopLifecycleWorker,
+  mockDashboardArtifactsStale,
+  mockRebuildDashboardProductionArtifacts,
 } = vi.hoisted(() => ({
   mockExec: vi.fn(),
   mockExecSilent: vi.fn(),
@@ -37,10 +40,14 @@ const {
     spawnOrchestrator: vi.fn(),
     send: vi.fn(),
     claimPR: vi.fn(),
+    restore: vi.fn(),
   },
   mockWaitForPortAndOpen: vi.fn().mockResolvedValue(undefined),
   mockSpawn: vi.fn(),
   mockEnsureLifecycleWorker: vi.fn(),
+  mockStopLifecycleWorker: vi.fn(),
+  mockDashboardArtifactsStale: vi.fn().mockReturnValue(false),
+  mockRebuildDashboardProductionArtifacts: vi.fn().mockResolvedValue(undefined),
 }));
 
 const { mockDetectOpenClawInstallation } = vi.hoisted(() => ({
@@ -48,7 +55,7 @@ const { mockDetectOpenClawInstallation } = vi.hoisted(() => ({
 }));
 
 const { mockProcessCwd } = vi.hoisted(() => ({
-  mockProcessCwd: vi.fn<[], string>(),
+  mockProcessCwd: vi.fn<() => string | undefined>(),
 }));
 
 vi.mock("../../src/lib/shell.js", () => ({
@@ -112,7 +119,9 @@ vi.mock("../../src/lib/web-dir.js", () => ({
 
 vi.mock("../../src/lib/dashboard-rebuild.js", () => ({
   findRunningDashboardPid: vi.fn().mockResolvedValue(null),
-  rebuildDashboardProductionArtifacts: vi.fn().mockResolvedValue(undefined),
+  rebuildDashboardProductionArtifacts: (...args: unknown[]) =>
+    mockRebuildDashboardProductionArtifacts(...args),
+  dashboardProductionArtifactsAreStale: (...args: unknown[]) => mockDashboardArtifactsStale(...args),
   waitForPortFree: vi.fn(),
 }));
 
@@ -237,6 +246,12 @@ beforeEach(() => {
     running: true,
     started: true,
   });
+  mockStopLifecycleWorker.mockReset();
+  mockStopLifecycleWorker.mockResolvedValue(true);
+  mockDashboardArtifactsStale.mockReset();
+  mockDashboardArtifactsStale.mockReturnValue(false);
+  mockRebuildDashboardProductionArtifacts.mockReset();
+  mockRebuildDashboardProductionArtifacts.mockResolvedValue(undefined);
   mockDetectOpenClawInstallation.mockReset();
   mockDetectOpenClawInstallation.mockResolvedValue({
     state: "missing",
@@ -1088,7 +1103,7 @@ describe("start command — autoCreateConfig", () => {
     });
 
     const { detectProjectType } = await import("../../src/lib/project-detection.js");
-    vi.mocked(detectProjectType).mockReturnValue({ languages: [], frameworks: [] });
+    vi.mocked(detectProjectType).mockReturnValue({ languages: [], frameworks: [], tools: [] });
 
     const { detectAvailableAgents, detectAgentRuntime } = await import("../../src/lib/detect-agent.js");
     vi.mocked(detectAvailableAgents).mockResolvedValue([]);

@@ -89,8 +89,11 @@ export async function readLastActivityEntry(
       let parsed: unknown = null;
       for (let i = lines.length - 1; i >= 0; i--) {
         try {
-          parsed = JSON.parse(lines[i]!);
-          break;
+          const line = lines[i];
+          if (line !== undefined) {
+            parsed = JSON.parse(line);
+            break;
+          }
         } catch {
           continue;
         }

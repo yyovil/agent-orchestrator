@@ -52,6 +52,10 @@ export default defineConfig({
         replacement: resolve(__dirname, "../plugins/agent-cursor/src/index.ts"),
       },
       {
+        find: "@aoagents/ao-plugin-agent-forge",
+        replacement: resolve(__dirname, "../plugins/agent-forge/src/index.ts"),
+      },
+      {
         find: "@aoagents/ao-plugin-scm-github",
         replacement: resolve(__dirname, "../plugins/scm-github/src/index.ts"),
       },

@@ -4,7 +4,7 @@
  */
 
 import { resolve } from "node:path";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import ora from "ora";
 import { exec, execSilent } from "./shell.js";
 
@@ -69,6 +69,60 @@ export async function cleanNextCache(webDir: string): Promise<void> {
   }
 }
 
+function getNewestMtimeMs(path: string): number {
+  if (!existsSync(path)) return 0;
+
+  const stat = statSync(path);
+  if (!stat.isDirectory()) {
+    return stat.mtimeMs;
+  }
+
+  let newest = 0;
+
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    newest = Math.max(newest, getNewestMtimeMs(resolve(path, entry.name)));
+  }
+
+  return newest;
+}
+
+/**
+ * Detect whether the optimized dashboard artifacts are older than the source
+ * checkout they were built from.
+ *
+ * This only applies to source checkouts. Global installs ship prebuilt assets
+ * and cannot rebuild in place.
+ */
+export function dashboardProductionArtifactsAreStale(webDir: string): boolean {
+  if (isInstalledUnderNodeModules(webDir)) return false;
+
+  const buildIdPath = resolve(webDir, ".next", "BUILD_ID");
+  const startAllPath = resolve(webDir, "dist-server", "start-all.js");
+  if (!existsSync(buildIdPath) || !existsSync(startAllPath)) return false;
+
+  const builtAtMs = Math.min(statSync(buildIdPath).mtimeMs, statSync(startAllPath).mtimeMs);
+  const workspaceRoot = resolve(webDir, "../..");
+  const watchPaths = [
+    resolve(webDir, "src"),
+    resolve(webDir, "server"),
+    resolve(webDir, "package.json"),
+    resolve(webDir, "next.config.js"),
+    resolve(webDir, "tsconfig.server.json"),
+    resolve(workspaceRoot, "packages", "core", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "agent-claude-code", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "agent-cursor", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "agent-forge", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "agent-opencode", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "runtime-tmux", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "scm-github", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "tracker-github", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "tracker-linear", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "workspace-worktree", "src"),
+  ];
+
+  return watchPaths.some((path) => getNewestMtimeMs(path) > builtAtMs);
+}
+
 /**
  * Rebuild dashboard production artifacts (Next.js build + server compilation)
  * from a source checkout. Throws if called from an npm global install.
@@ -92,4 +146,3 @@ export async function rebuildDashboardProductionArtifacts(webDir: string): Promi
     );
   }
 }
-

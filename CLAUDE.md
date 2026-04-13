@@ -2,7 +2,7 @@
 
 ## What is this project?
 
-Agent Orchestrator (AO) is a platform for spawning and managing parallel AI coding agents across distributed systems. It runs multiple agents (Claude Code, Codex, Aider, OpenCode) simultaneously — each in an isolated git worktree with its own PR — and provides a single dashboard to supervise them all. Agents autonomously fix CI failures, address review comments, and manage PRs.
+Agent Orchestrator (AO) is a platform for spawning and managing parallel AI coding agents across distributed systems. It runs multiple agents (Claude Code, Codex, Aider, Forge, OpenCode) simultaneously — each in an isolated git worktree with its own PR — and provides a single dashboard to supervise them all. Agents autonomously fix CI failures, address review comments, and manage PRs.
 
 **Org:** ComposioHQ
 **Repo:** `github.com/ComposioHQ/agent-orchestrator`
@@ -19,7 +19,7 @@ packages/
   web/            # Next.js 15 dashboard (App Router, React 19, Tailwind v4)
   ao/             # Global CLI wrapper (thin shim around cli)
   plugins/
-    agent-claude-code/    agent-aider/    agent-codex/    agent-opencode/
+    agent-claude-code/    agent-aider/    agent-codex/    agent-forge/    agent-opencode/
     runtime-tmux/         runtime-process/
     workspace-worktree/   workspace-clone/
     tracker-github/       tracker-linear/   tracker-gitlab/
@@ -314,7 +314,7 @@ import {
 
 ### Agent Plugin Implementation Standards
 
-All agent plugins (claude-code, codex, aider, opencode, etc.) must implement the full `Agent` interface. The dashboard depends on these methods for PR tracking, cost display, and session resume.
+All agent plugins (claude-code, codex, aider, forge, opencode, etc.) must implement the full `Agent` interface. The dashboard depends on these methods for PR tracking, cost display, and session resume.
 
 **Required methods (all agents):**
 

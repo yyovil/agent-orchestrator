@@ -136,6 +136,7 @@ const AgentSpecificConfigSchema = z
     model: z.string().optional(),
     orchestratorModel: z.string().optional(),
     opencodeSessionId: z.string().optional(),
+    forgeConversationId: z.string().optional(),
   })
   .passthrough();
 
@@ -147,6 +148,7 @@ const RoleAgentSpecificConfigSchema = z
     model: z.string().optional(),
     orchestratorModel: z.string().optional(),
     opencodeSessionId: z.string().optional(),
+    forgeConversationId: z.string().optional(),
   })
   .passthrough();
 

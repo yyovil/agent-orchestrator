@@ -7,6 +7,8 @@ const {
   mockRegistry,
   tmuxPlugin,
   claudePlugin,
+  cursorPlugin,
+  forgePlugin,
   opencodePlugin,
   worktreePlugin,
   scmPlugin,
@@ -31,6 +33,8 @@ const {
     mockRegistry,
     tmuxPlugin: { manifest: { name: "tmux" } },
     claudePlugin: { manifest: { name: "claude-code" } },
+    cursorPlugin: { manifest: { name: "cursor" } },
+    forgePlugin: { manifest: { name: "forge" } },
     opencodePlugin: { manifest: { name: "opencode" } },
     worktreePlugin: { manifest: { name: "worktree" } },
     scmPlugin: { manifest: { name: "github" } },
@@ -54,6 +58,8 @@ vi.mock("@aoagents/ao-core", () => ({
 
 vi.mock("@aoagents/ao-plugin-runtime-tmux", () => ({ default: tmuxPlugin }));
 vi.mock("@aoagents/ao-plugin-agent-claude-code", () => ({ default: claudePlugin }));
+vi.mock("@aoagents/ao-plugin-agent-cursor", () => ({ default: cursorPlugin }));
+vi.mock("@aoagents/ao-plugin-agent-forge", () => ({ default: forgePlugin }));
 vi.mock("@aoagents/ao-plugin-agent-opencode", () => ({ default: opencodePlugin }));
 vi.mock("@aoagents/ao-plugin-workspace-worktree", () => ({ default: worktreePlugin }));
 vi.mock("@aoagents/ao-plugin-scm-github", () => ({ default: scmPlugin }));
@@ -92,6 +98,7 @@ describe("services", () => {
     await getServices();
 
     expect(mockRegister).toHaveBeenCalledWith(opencodePlugin);
+    expect(mockRegister).toHaveBeenCalledWith(forgePlugin);
   });
 
   it("caches initialized services across repeated calls", async () => {
