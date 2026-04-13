@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "1c43a93af76f",
+  "session_id": "8b7f3290-aed8-49c7-bf78-d77f170c496e",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-13T07:49:30.635254Z",
+  "branch": "yyovil/fix-issue-1175",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "packages/core/src/__tests__/orchestrator-prompt.test.ts",
+    "packages/core/src/orchestrator-prompt.ts",
+    "packages/core/src/prompts/orchestrator.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "9617e87fb443",
+  "token_usage": {
+    "input_tokens": 511,
+    "cache_creation_tokens": 40841,
+    "cache_read_tokens": 552978,
+    "output_tokens": 5660,
+    "api_call_count": 15
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-13T07:49:30.522363Z",
+    "agent_lines": 0,
+    "human_added": 65,
+    "human_modified": 19,
+    "human_removed": 0,
+    "total_committed": 65,
+    "agent_percentage": 0
+  }
+}
