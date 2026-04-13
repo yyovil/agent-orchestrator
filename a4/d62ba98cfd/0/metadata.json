@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "a4d62ba98cfd",
+  "session_id": "792733fe-ae2b-49ab-a5e9-7f6aa902bea3",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-13T15:27:09.813708Z",
+  "branch": "yyovil/fix-issue-1175",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "packages/core/package.json",
+    "packages/core/rollup.config.mjs",
+    "packages/core/rollup.config.ts",
+    "packages/core/tsconfig.build.json"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "88654da8bce7",
+  "token_usage": {
+    "input_tokens": 188,
+    "cache_creation_tokens": 55237,
+    "cache_read_tokens": 1682237,
+    "output_tokens": 12013,
+    "api_call_count": 33
+  },
+  "session_metrics": {
+    "turn_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-13T15:27:09.706043Z",
+    "agent_lines": 0,
+    "human_added": 6,
+    "human_modified": 73,
+    "human_removed": 0,
+    "total_committed": 9,
+    "agent_percentage": 0
+  }
+}
