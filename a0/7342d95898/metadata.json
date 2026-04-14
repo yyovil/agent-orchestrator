@@ -3,7 +3,7 @@
   "checkpoint_id": "a07342d95898",
   "strategy": "manual-commit",
   "branch": "yyovil/agent-forge",
-  "checkpoints_count": 1,
+  "checkpoints_count": 3,
   "files_touched": [
     "CLAUDE.md",
     "README.md",
@@ -14,14 +14,18 @@
     "packages/cli/src/lib/detect-agent.ts",
     "packages/cli/src/lib/plugins.ts",
     "packages/cli/vitest.config.ts",
+    "packages/core/src/__tests__/lifecycle-manager.test.ts",
     "packages/core/src/config.ts",
     "packages/core/src/index.ts",
+    "packages/core/src/lifecycle-manager.ts",
     "packages/core/src/metadata.ts",
     "packages/core/src/plugin-registry.ts",
     "packages/core/src/session-manager.ts",
     "packages/core/src/types.ts",
     "packages/core/src/utils/session-from-metadata.ts",
     "packages/integration-tests/package.json",
+    "packages/plugins/agent-forge/src/__tests__/index.test.ts",
+    "packages/plugins/agent-forge/src/index.test.ts",
     "packages/web/next.config.js",
     "packages/web/package.json",
     "packages/web/src/__tests__/services.test.ts",
@@ -35,13 +39,19 @@
       "transcript": "/a0/7342d95898/0/full.jsonl",
       "content_hash": "/a0/7342d95898/0/content_hash.txt",
       "prompt": "/a0/7342d95898/0/prompt.txt"
+    },
+    {
+      "metadata": "/a0/7342d95898/1/metadata.json",
+      "transcript": "/a0/7342d95898/1/full.jsonl",
+      "content_hash": "/a0/7342d95898/1/content_hash.txt",
+      "prompt": "/a0/7342d95898/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 19,
-    "cache_creation_tokens": 41844,
-    "cache_read_tokens": 292647,
-    "output_tokens": 6652,
-    "api_call_count": 9
+    "input_tokens": 1858,
+    "cache_creation_tokens": 82472,
+    "cache_read_tokens": 946324,
+    "output_tokens": 14607,
+    "api_call_count": 26
   }
 }
