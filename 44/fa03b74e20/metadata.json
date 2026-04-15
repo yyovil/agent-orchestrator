@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "44fa03b74e20",
+  "strategy": "manual-commit",
+  "branch": "yyovil/terminal-start-exit",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "packages/web/src/__tests__/components.test.tsx",
+    "packages/web/src/__tests__/services.test.ts",
+    "packages/web/src/components/DirectTerminal.tsx",
+    "packages/web/src/components/SessionDetail.tsx",
+    "packages/web/src/components/__tests__/DirectTerminal.render.test.tsx",
+    "packages/web/src/components/__tests__/SessionDetail.desktop.test.tsx",
+    "packages/web/src/lib/services.ts",
+    "packages/web/src/providers/MuxProvider.tsx",
+    "packages/web/src/providers/__tests__/MuxProvider.test.tsx"
+  ],
+  "sessions": [
+    {
+      "metadata": "/44/fa03b74e20/0/metadata.json",
+      "transcript": "/44/fa03b74e20/0/full.jsonl",
+      "content_hash": "/44/fa03b74e20/0/content_hash.txt",
+      "prompt": "/44/fa03b74e20/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9,
+    "cache_creation_tokens": 27151,
+    "cache_read_tokens": 143718,
+    "output_tokens": 2467,
+    "api_call_count": 5
+  }
+}
