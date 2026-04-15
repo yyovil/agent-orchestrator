@@ -230,7 +230,7 @@ describe("SessionDetail desktop layout", () => {
     expect(screen.queryByText(/Terminal session has ended/i)).not.toBeInTheDocument();
   });
 
-  it("keeps the terminal mounted after it has attached even if session status turns terminal", () => {
+  it("keeps the terminal mounted after it has attached even if session status becomes terminated", () => {
     const { rerender } = render(
       <SessionDetail
         session={makeSession({
