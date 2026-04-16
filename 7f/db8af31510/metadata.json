@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "7fdb8af31510",
+  "strategy": "manual-commit",
+  "branch": "yyovil/fix-issue-1175",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "packages/core/src/__tests__/orchestrator-prompt.test.ts",
+    "packages/core/src/orchestrator-prompt.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7f/db8af31510/0/metadata.json",
+      "transcript": "/7f/db8af31510/0/full.jsonl",
+      "content_hash": "/7f/db8af31510/0/content_hash.txt",
+      "prompt": "/7f/db8af31510/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 188,
+    "cache_creation_tokens": 55237,
+    "cache_read_tokens": 1682237,
+    "output_tokens": 12013,
+    "api_call_count": 33
+  }
+}
