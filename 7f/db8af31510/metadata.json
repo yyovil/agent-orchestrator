@@ -20,14 +20,14 @@
       "metadata": "/7f/db8af31510/1/metadata.json",
       "transcript": "/7f/db8af31510/1/full.jsonl",
       "content_hash": "/7f/db8af31510/1/content_hash.txt",
-      "prompt": "/7f/db8af31510/1/prompt.txt"
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 200,
-    "cache_creation_tokens": 83870,
-    "cache_read_tokens": 1867309,
-    "output_tokens": 13806,
-    "api_call_count": 39
+    "input_tokens": 191,
+    "cache_creation_tokens": 55631,
+    "cache_read_tokens": 1721595,
+    "output_tokens": 13837,
+    "api_call_count": 34
   }
 }
