@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "b91ccadead1c",
+  "strategy": "manual-commit",
+  "branch": "yyovil/doctor-always-script",
+  "checkpoints_count": 10,
+  "files_touched": [
+    "packages/cli/__tests__/commands/doctor.test.ts",
+    "packages/cli/__tests__/lib/update-check.test.ts",
+    "packages/cli/__tests__/scripts/doctor-script.test.ts",
+    "packages/cli/__tests__/scripts/update-script.test.ts",
+    "packages/cli/src/assets/scripts/ao-doctor.sh",
+    "packages/cli/src/assets/scripts/ao-update.sh",
+    "packages/cli/src/commands/doctor.ts",
+    "packages/cli/src/lib/script-runner.ts",
+    "packages/cli/src/lib/update-check.ts",
+    "scripts/ao-doctor.sh",
+    "scripts/ao-update.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b9/1ccadead1c/0/metadata.json",
+      "transcript": "/b9/1ccadead1c/0/full.jsonl",
+      "content_hash": "/b9/1ccadead1c/0/content_hash.txt",
+      "prompt": "/b9/1ccadead1c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 92,
+    "cache_creation_tokens": 100040,
+    "cache_read_tokens": 3727573,
+    "output_tokens": 33454,
+    "api_call_count": 43
+  }
+}
