@@ -14,8 +14,8 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const scriptPath = join(repoRoot, "scripts", "ao-doctor.sh");
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const scriptPath = join(packageRoot, "src", "assets", "scripts", "ao-doctor.sh");
 
 function writeExecutable(path: string, content: string): void {
   writeFileSync(path, content);
@@ -78,7 +78,7 @@ function createHealthyPath(binDir: string): void {
   createFakeBinary(binDir, "ao", 'printf "/fake/ao\\n" >/dev/null\nexit 0');
 }
 
-describe("scripts/ao-doctor.sh", () => {
+describe("ao-doctor.sh", () => {
   it("reports a healthy install as PASS", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-script-"));
     const fakeRepo = createHealthyRepo(tempRoot);

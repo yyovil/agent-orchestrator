@@ -90,10 +90,7 @@ export function classifyInstallPath(resolvedPath: string): InstallMethod {
   // Running from a source checkout → git install
   // Walk up from packages/cli/dist/lib/ (or src/lib/) to repo root
   const repoRoot = resolve(dirname(resolvedPath), "../../../../");
-  if (
-    existsSync(resolve(repoRoot, "scripts/ao-update.sh")) &&
-    existsSync(resolve(repoRoot, ".git"))
-  ) {
+  if (existsSync(resolve(repoRoot, ".git"))) {
     return "git";
   }
 
