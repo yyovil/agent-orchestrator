@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.5.2",
+  "checkpoint_id": "f3e3c6a82c4f",
+  "strategy": "manual-commit",
+  "branch": "fix/xterm-migration",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "packages/web/src/components/DirectTerminal.tsx"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f3/e3c6a82c4f/0/metadata.json",
+      "transcript": "/f3/e3c6a82c4f/0/full.jsonl",
+      "content_hash": "/f3/e3c6a82c4f/0/content_hash.txt",
+      "prompt": "/f3/e3c6a82c4f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 28,
+    "cache_creation_tokens": 47985,
+    "cache_read_tokens": 656177,
+    "output_tokens": 2372,
+    "api_call_count": 15
+  }
+}
