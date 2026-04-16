@@ -3,7 +3,7 @@
   "checkpoint_id": "b51ab85e38bf",
   "strategy": "manual-commit",
   "branch": "fix/xterm-migration",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "packages/web/package.json",
     "packages/web/src/components/DirectTerminal.tsx",
@@ -15,13 +15,19 @@
       "transcript": "/b5/1ab85e38bf/0/full.jsonl",
       "content_hash": "/b5/1ab85e38bf/0/content_hash.txt",
       "prompt": "/b5/1ab85e38bf/0/prompt.txt"
+    },
+    {
+      "metadata": "/b5/1ab85e38bf/1/metadata.json",
+      "transcript": "/b5/1ab85e38bf/1/full.jsonl",
+      "content_hash": "/b5/1ab85e38bf/1/content_hash.txt",
+      "prompt": "/b5/1ab85e38bf/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 63,
-    "cache_creation_tokens": 92468,
-    "cache_read_tokens": 2719182,
-    "output_tokens": 17849,
-    "api_call_count": 43
+    "input_tokens": 89,
+    "cache_creation_tokens": 127261,
+    "cache_read_tokens": 3546155,
+    "output_tokens": 22980,
+    "api_call_count": 65
   }
 }
