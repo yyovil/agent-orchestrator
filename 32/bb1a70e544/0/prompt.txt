@@ -1,0 +1,110 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/tanishqpalandurkar/conductor/workspaces/agent-orchestrator/san-juan directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is main. Use this for actions like creating new PRs, bisecting, etc., unless you're told otherwise.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask. 
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+Merge the remote branch (main) into your branch and resolve conflicts. Then, commit and push your changes.
+
+---
+
+Merge the remote branch (main) into your branch and resolve conflicts. Then, commit and push your changes.
+
+---
+
+Merge the remote branch (main) into your branch and resolve conflicts. Then, commit and push your changes.
+
+---
+
+why it is saying that /Users/tanishqpalandurkar/conductor/workspaces/agent-orchestrator/san-juan/.context/attachments/image-v7.png this branch has a conflict then? look at the time in the top right. Its the most recent ss.
+
+---
+
+<system-instruction>
+The user has added 6 comments to the diff for this workspace. Please review and address these comments as part of your response. When addressing comments on the "original" side or on specific commits, read the file from that version (not the current version). Below are the comments, including metadata about what git state they were left on:
+
+Comment #1:
+
+File: packages/web/src/providers/MuxProvider.tsx
+Line: 171
+User comment: "The `exited` branch above deletes `msg.id` from `openedTerminalsRef` and writes a notice chunk to subscribers; this `error` branch does neither. Consequences: (a) the failed terminal id stays in `openedTerminalsRef` forever and gets replayed as an `open` message on every websocket reconnect (see the loop at lines 115–122), and (b) subscribers never see any indication of failure so the xterm just stays silent."
+
+Comment metadata:
+This comment was left on the modified branch.
+This comment was left on GitHub by @illegalcall.
+This comment is the start of thread PRRT_kwDORPZUAc57rKK7. 
+
+
+Comment #2:
+
+File: packages/web/src/components/DirectTerminal.tsx
+Line: 352
+User comment: "`setError(event.message)` is never cleared on a subsequent `opened` event. A single transient mux error (reconnect race, unknown session id, PTY momentarily unavailable) leaves the terminal UI stuck on the error state for the lifetime of the component. Clear `error` when the lifecycle returns to `opened`."
+
+Comment metadata:
+This comment was left on the modified branch.
+This comment was left on GitHub by @illegalcall.
+This comment is the start of thread PRRT_kwDORPZUAc57rKNS. 
+
+
+Comment #3:
+
+File: packages/web/src/components/SessionDetail.tsx
+Line: 540
+User comment: "Only `opened` and `exited` are handled. `mux-websocket.ts` emits `{ type: "error" }` (not `exited`) when `resolveTmuxSession` cannot find the session, which is the normal case for any session whose tmux has already gone away. Those sessions never transition `terminalPhase` to `"exited"`, so `showTerminalEndedPlaceholder` at line 543 stays false and the 'Terminal session has ended' placeholder never renders for already-ended sessions — a regression vs. the previous `terminalEnded`-based check. Either treat `error` as end-of-session here, or have the server emit `exited` when `open` fails with 'Session not found'."
+
+Comment metadata:
+This comment was left on the modified branch.
+This comment was left on GitHub by @illegalcall.
+This comment is the start of thread PRRT_kwDORPZUAc57rKQj. 
+
+
+Comment #4:
+
+File: packages/web/src/components/SessionDetail.tsx
+Line: 461
+User comment: "`"attached"` is written at line 534 but never read anywhere. The only consumer of `terminalPhase` is `showTerminalEndedPlaceholder` at line 543, which checks `=== "exited"`. Either drop the state to a boolean, or wire the attached phase to something observable."
+
+Comment metadata:
+This comment was left on the modified branch.
+This comment was left on GitHub by @illegalcall.
+This comment is the start of thread PRRT_kwDORPZUAc57rKSR. 
+
+
+Comment #5:
+
+File: packages/web/src/lib/services.ts
+Line: 63
+User comment: "Six of the packages in this map — `@aoagents/ao-plugin-runtime-process`, `@aoagents/ao-plugin-agent-codex`, `@aoagents/ao-plugin-agent-aider`, `@aoagents/ao-plugin-workspace-clone`, `@aoagents/ao-plugin-scm-gitlab`, `@aoagents/ao-plugin-tracker-gitlab` — are not declared in `packages/web/package.json` `dependencies`. In a published/node_modules install they will not be symlinked under `packages/web/node_modules/@aoagents/…`, so `resolveBuiltinPackageRoot`'s first branch misses and falls through to `findMonorepoRoot`, which throws 'Could not find monorepo root' (there is no `pnpm-workspace.yaml` ancestor when web runs from inside its own `node_modules`). Selecting any of these plugins in a user's config will crash the web server at startup."
+
+Comment metadata:
+This comment was left on the modified branch.
+This comment was left on GitHub by @illegalcall.
+This comment is the start of thread PRRT_kwDORPZUAc57rKXw. 
+
+
+Comment #6:
+
+File: packages/web/src/__tests__/services.test.ts
+Line: 118
+User comment: "The mocks at lines 55–61 (`vi.mock("@aoagents/ao-plugin-runtime-tmux", …)` etc.) never intercept anything. `services.ts#loadBuiltinPluginModule` loads plugins via `import(pathToFileURL(resolvePath(packageRoot, entry)).href)` — a `file://…/dist/index.js` URL — and `vi.mock` only matches the specifier it was registered with. A bare package name does not match a file URL, so this test (and the others below) load the real built plugin artifacts from disk. That silently couples `pnpm --filter @aoagents/ao-web test` to every builtin plugin's `dist/` existing; without it, runs fail with `ERR_MODULE_NOT_FOUND` on the first plugin load."
+
+Comment metadata:
+This comment was left on the modified branch.
+This comment was left on GitHub by @illegalcall.
+This comment is the start of thread PRRT_kwDORPZUAc57rK0b. 
+
+</system-instruction>
+
+resolve all them comments and make sure only relevant suggestions are accepted.
+
+---
+
+what are the failures related to?
