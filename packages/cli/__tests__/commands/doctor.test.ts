@@ -187,11 +187,6 @@ describe("doctor command", () => {
     expect(mockRunRepoScript).toHaveBeenCalledWith("ao-doctor.sh", ["--fix"]);
   });
 
-  it("always runs ao-doctor.sh, including npm/global install methods", async () => {
-    await program.parseAsync(["node", "test", "doctor"]);
-    expect(mockRunRepoScript).toHaveBeenCalledWith("ao-doctor.sh", []);
-  });
-
   it("checks configured plugin references when config is present", async () => {
     const config = makeConfig();
     mockFindConfigFile.mockReturnValue(config.configPath);

@@ -197,7 +197,12 @@ describe("update command", () => {
       await program.parseAsync(["node", "test", "update"]);
 
       expect(mockExecuteScriptCommand).not.toHaveBeenCalled();
-      expect(mockSpawn).toHaveBeenCalled();
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(mockSpawn).toHaveBeenCalledWith(
+        "npm",
+        ["install", "-g", "@aoagents/ao@latest"],
+        expect.anything(),
+      );
       expect(mockCheckForUpdate).toHaveBeenCalledWith({ force: true });
       expect(mockInvalidateCache).toHaveBeenCalledTimes(1);
     });

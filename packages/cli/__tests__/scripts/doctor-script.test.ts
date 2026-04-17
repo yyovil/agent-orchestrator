@@ -44,6 +44,19 @@ function createHealthyRepo(tempRoot: string): string {
   return fakeRepo;
 }
 
+function createHealthyPackageInstall(tempRoot: string): string {
+  const fakeInstall = join(tempRoot, "package-install");
+  mkdirSync(join(fakeInstall, "dist", "assets", "scripts"), { recursive: true });
+  writeFileSync(
+    join(fakeInstall, "package.json"),
+    JSON.stringify({ name: "@aoagents/ao-cli", version: "0.2.5" }, null, 2),
+  );
+  writeFileSync(join(fakeInstall, "dist", "index.js"), 'console.log("0.2.5");\n');
+  writeFileSync(join(fakeInstall, "dist", "assets", "scripts", "ao-doctor.sh"), "#!/bin/bash\n");
+  writeFileSync(join(fakeInstall, "dist", "assets", "scripts", "ao-update.sh"), "#!/bin/bash\n");
+  return fakeInstall;
+}
+
 function createHealthyPath(binDir: string): void {
   createFakeBinary(
     binDir,
@@ -176,5 +189,43 @@ describe("ao-doctor.sh", () => {
     expect(worktreeDirExists).toBe(true);
     expect(commentedDataDirExists).toBe(false);
     expect(commentedWorktreeDirExists).toBe(false);
+  });
+
+  it("reports a healthy packaged install without source-checkout failures", () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-package-"));
+    const fakeInstall = createHealthyPackageInstall(tempRoot);
+    const binDir = join(tempRoot, "bin");
+    mkdirSync(binDir, { recursive: true });
+    createHealthyPath(binDir);
+
+    const configPath = join(tempRoot, "agent-orchestrator.yaml");
+    const dataDir = join(tempRoot, "data");
+    const worktreeDir = join(tempRoot, "worktrees");
+    mkdirSync(dataDir, { recursive: true });
+    mkdirSync(worktreeDir, { recursive: true });
+    writeFileSync(
+      configPath,
+      [`dataDir: ${dataDir}`, `worktreeDir: ${worktreeDir}`, "projects: {}"].join("\n"),
+    );
+
+    const result = spawnSync("bash", [scriptPath], {
+      env: {
+        ...process.env,
+        PATH: `${binDir}:/bin:/usr/bin`,
+        AO_REPO_ROOT: fakeInstall,
+        AO_SCRIPT_LAYOUT: "package-install",
+        AO_CONFIG_PATH: configPath,
+      },
+      encoding: "utf8",
+    });
+
+    rmSync(tempRoot, { recursive: true, force: true });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("bundled doctor script is available");
+    expect(result.stdout).toContain("packaged CLI runtime sanity check passed");
+    expect(result.stdout).toContain("Environment looks healthy");
+    expect(result.stdout).not.toContain("dependencies are missing");
+    expect(result.stdout).not.toContain("launcher entrypoint is missing");
   });
 });

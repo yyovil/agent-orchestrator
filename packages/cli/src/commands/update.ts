@@ -7,6 +7,7 @@ import {
   detectInstallMethod,
   getCurrentVersion,
   getUpdateCommand,
+  type InstallMethod,
   invalidateCache,
 } from "../lib/update-check.js";
 import { promptConfirm } from "../lib/prompts.js";
@@ -81,7 +82,7 @@ async function handleGitUpdate(opts: {
     console.log(
       chalk.yellow("Source-update script unavailable; using package-manager update flow for this install."),
     );
-    await handleNpmUpdate(opts);
+    await handleNpmUpdate(opts, "npm-global");
     return;
   }
 
@@ -96,7 +97,7 @@ async function handleGitUpdate(opts: {
 async function handleNpmUpdate(opts: {
   skipSmoke?: boolean;
   smokeOnly?: boolean;
-}): Promise<void> {
+}, fallbackMethod?: InstallMethod): Promise<void> {
   if (opts.skipSmoke || opts.smokeOnly) {
     console.log(
       chalk.yellow("--skip-smoke and --smoke-only only apply to git source installs. Ignoring."),
@@ -119,7 +120,7 @@ async function handleNpmUpdate(opts: {
   console.log(`Latest version:  ${chalk.green(info.latestVersion)}`);
   console.log();
 
-  const command = info.recommendedCommand;
+  const command = fallbackMethod ? getUpdateCommand(fallbackMethod) : info.recommendedCommand;
 
   if (!isTTY()) {
     // Non-interactive: print the command. Exit 0 because this isn't an error,

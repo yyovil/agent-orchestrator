@@ -3,12 +3,40 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../");
-const CLI_DIST_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const CURRENT_MODULE_PATH = fileURLToPath(import.meta.url);
+const CURRENT_MODULE_DIR = dirname(CURRENT_MODULE_PATH);
+const CLI_DIST_ROOT = resolve(CURRENT_MODULE_DIR, "..");
+
+export type ScriptLayout = "source-checkout" | "package-install";
+
+export function resolveScriptLayoutFromPath(modulePath: string): ScriptLayout {
+  const isNodeModulesInstall =
+    modulePath.includes("/node_modules/") || modulePath.includes("\\node_modules\\");
+  return isNodeModulesInstall ? "package-install" : "source-checkout";
+}
+
+export function resolveDefaultRepoRootFromPath(modulePath: string): string {
+  const moduleDir = dirname(modulePath);
+  const layout = resolveScriptLayoutFromPath(modulePath);
+  return layout === "package-install"
+    ? resolve(moduleDir, "../..")
+    : resolve(moduleDir, "../../../../");
+}
+
+const DEFAULT_REPO_ROOT = resolveDefaultRepoRootFromPath(CURRENT_MODULE_PATH);
+const DEFAULT_SCRIPT_LAYOUT = resolveScriptLayoutFromPath(CURRENT_MODULE_PATH);
 
 export function resolveRepoRoot(): string {
   const override = process.env["AO_REPO_ROOT"];
   return override ? resolve(override) : DEFAULT_REPO_ROOT;
+}
+
+export function resolveScriptLayout(): ScriptLayout {
+  const override = process.env["AO_SCRIPT_LAYOUT"];
+  if (override === "package-install" || override === "source-checkout") {
+    return override;
+  }
+  return DEFAULT_SCRIPT_LAYOUT;
 }
 
 function getScriptPath(scriptName: string): string {
@@ -18,7 +46,9 @@ function getScriptPath(scriptName: string): string {
 export function resolveScriptPath(scriptName: string): string {
   const scriptPath = getScriptPath(scriptName);
   if (!existsSync(scriptPath)) {
-    throw new Error(`Script not found: ${scriptName}`);
+    throw new Error(
+      `Script not found: ${scriptName}. Expected at: ${scriptPath} (scripts directory: ${resolve(CLI_DIST_ROOT, "assets", "scripts")})`,
+    );
   }
   return scriptPath;
 }
@@ -31,11 +61,12 @@ export async function runRepoScript(scriptName: string, args: string[]): Promise
   const shell = process.env["AO_BASH_PATH"] || "bash";
   const scriptPath = resolveScriptPath(scriptName);
   const repoRoot = resolveRepoRoot();
+  const scriptLayout = resolveScriptLayout();
 
   return await new Promise<number>((resolveExit, reject) => {
     const child = spawn(shell, [scriptPath, ...args], {
-      cwd: repoRoot,
-      env: { ...process.env, AO_REPO_ROOT: repoRoot },
+      cwd: process.cwd(),
+      env: { ...process.env, AO_REPO_ROOT: repoRoot, AO_SCRIPT_LAYOUT: scriptLayout },
       stdio: "inherit",
     });
 
