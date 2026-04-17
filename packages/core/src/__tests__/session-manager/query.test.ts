@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  mkdirSync,
   readFileSync,
+  statSync,
   utimesSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { createSessionManager } from "../../session-manager.js";
 import {
@@ -39,6 +42,12 @@ beforeEach(() => {
 afterEach(() => {
   teardownTestContext(ctx);
 });
+
+function initWorkspaceOnBranch(workspacePath: string, branch: string): void {
+  mkdirSync(workspacePath, { recursive: true });
+  execFileSync("git", ["init"], { cwd: workspacePath, stdio: "ignore" });
+  execFileSync("git", ["checkout", "-b", branch], { cwd: workspacePath, stdio: "ignore" });
+}
 
 describe("list", () => {
   it("lists sessions from metadata", async () => {
@@ -408,6 +417,30 @@ describe("list", () => {
     // lastActivityAt should NOT be downgraded to the older detection timestamp
     expect(sessions[0].lastActivityAt.getTime()).toBeGreaterThan(olderTimestamp.getTime());
   });
+
+  it("refreshes the branch from the live workspace and preserves metadata mtime", async () => {
+    const workspacePath = join(tmpDir, "workspaces", "app-1");
+    initWorkspaceOnBranch(workspacePath, "feat/live-branch");
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: workspacePath,
+      branch: "feat/original-branch",
+      status: "working",
+      project: "my-app",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+
+    const metadataPath = join(sessionsDir, "app-1");
+    const beforeMtime = statSync(metadataPath).mtimeMs;
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const sessions = await sm.list("my-app");
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].branch).toBe("feat/live-branch");
+    expect(readMetadataRaw(sessionsDir, "app-1")?.["branch"]).toBe("feat/live-branch");
+    expect(Math.abs(statSync(metadataPath).mtimeMs - beforeMtime)).toBeLessThanOrEqual(1);
+  });
 });
 
 describe("get", () => {
@@ -577,5 +610,27 @@ describe("get", () => {
 
     expect(session).not.toBeNull();
     expect(session!.metadata["prAutoDetect"]).toBe("off");
+  });
+
+  it("refreshes the branch from the live workspace and syncs the session PR branch", async () => {
+    const workspacePath = join(tmpDir, "workspaces", "app-1-detail");
+    initWorkspaceOnBranch(workspacePath, "feat/renamed-branch");
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: workspacePath,
+      branch: "feat/original-branch",
+      status: "pr_open",
+      project: "my-app",
+      pr: "https://github.com/org/repo/pull/42",
+      runtimeHandle: JSON.stringify(makeHandle("rt-1")),
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    const session = await sm.get("app-1");
+
+    expect(session).not.toBeNull();
+    expect(session!.branch).toBe("feat/renamed-branch");
+    expect(session!.pr?.branch).toBe("feat/renamed-branch");
+    expect(readMetadataRaw(sessionsDir, "app-1")?.["branch"]).toBe("feat/renamed-branch");
   });
 });

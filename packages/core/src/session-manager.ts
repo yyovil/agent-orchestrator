@@ -840,6 +840,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     project: ProjectConfig,
     effectiveAgentName: string,
     plugins: ReturnType<typeof resolvePlugins>,
+    modifiedAt?: Date,
     sessionListPromise?: Promise<OpenCodeSessionListEntry[]>,
   ): Promise<void> {
     await ensureOpenCodeSessionMapping(
@@ -867,7 +868,43 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         data: {},
       };
     }
+    await refreshSessionBranchFromWorkspace(session, sessionName, sessionsDir, modifiedAt);
     await enrichSessionWithRuntimeState(session, plugins, handleFromMetadata);
+  }
+
+  async function getLiveWorkspaceBranch(workspacePath: string): Promise<string | null> {
+    try {
+      const { stdout } = await execFileAsync("git", ["branch", "--show-current"], {
+        cwd: workspacePath,
+        timeout: 30_000,
+      });
+      const branch = stdout.trim();
+      return branch.length > 0 ? branch : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function refreshSessionBranchFromWorkspace(
+    session: Session,
+    sessionName: string,
+    sessionsDir: string,
+    modifiedAt?: Date,
+  ): Promise<void> {
+    if (!session.workspacePath) return;
+
+    const liveBranch = await getLiveWorkspaceBranch(session.workspacePath);
+    if (!liveBranch || liveBranch === session.branch) return;
+
+    session.branch = liveBranch;
+    if (session.pr) {
+      session.pr.branch = liveBranch;
+    }
+    session.metadata = {
+      ...session.metadata,
+      branch: liveBranch,
+    };
+    updateMetadataPreservingMtime(sessionsDir, sessionName, { branch: liveBranch }, modifiedAt);
   }
 
   /**
@@ -1570,6 +1607,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         project,
         effectiveAgentName,
         plugins,
+        modifiedAt,
         sessionListPromise,
       ).catch(() => {});
       try {
@@ -1624,6 +1662,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         project,
         effectiveAgentName,
         plugins,
+        modifiedAt,
       );
 
       return session;
