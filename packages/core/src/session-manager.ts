@@ -892,6 +892,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     modifiedAt?: Date,
   ): Promise<void> {
     if (!session.workspacePath) return;
+    if (!existsSync(session.workspacePath)) return;
 
     const liveBranch = await getLiveWorkspaceBranch(session.workspacePath);
     if (!liveBranch || liveBranch === session.branch) return;
