@@ -40,7 +40,12 @@
   },
   "pnpm": {
     "overrides": {
-      "axios": "^1.15.0"
+      "axios": "^1.15.0",
+      "axios>follow-redirects": "1.16.0",
+      "@vitest/mocker@2.1.9>vite": "6.4.2",
+      "vite-node@2.1.9>vite": "6.4.2",
+      "vitest@2.1.9>vite": "6.4.2",
+      "external-editor>tmp": "0.2.4"
     }
   }
 }
