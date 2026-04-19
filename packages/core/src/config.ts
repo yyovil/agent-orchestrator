@@ -239,6 +239,10 @@ const PowerConfigSchema = z
   })
   .default({});
 
+const DashboardConfigSchema = z.object({
+  attentionZones: z.enum(["simple", "detailed"]).default("simple"),
+});
+
 const OrchestratorConfigSchema = z.object({
   port: z.number().default(3000),
   terminalPort: z.number().optional(),
@@ -247,6 +251,7 @@ const OrchestratorConfigSchema = z.object({
   power: PowerConfigSchema,
   defaults: DefaultPluginsSchema.default({}),
   plugins: z.array(InstalledPluginConfigSchema).default([]),
+  dashboard: DashboardConfigSchema.optional(),
   projects: z.record(
     z.string().regex(/^[a-zA-Z0-9_-]+$/, "Project ID must match [a-zA-Z0-9_-]+ (no dots, slashes, or special characters)"),
     ProjectConfigSchema,
@@ -548,6 +553,13 @@ function validateProjectUniqueness(config: OrchestratorConfig): void {
 /** Apply default reactions */
 function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
   const defaults: Record<string, (typeof config.reactions)[string]> = {
+    "pr-closed": {
+      auto: true,
+      action: "notify",
+      priority: "action",
+      message:
+        "A PR was closed without merging. Decide whether to learn from the closure, resume the work, or terminate the session.",
+    },
     "ci-failed": {
       auto: true,
       action: "send-to-agent",

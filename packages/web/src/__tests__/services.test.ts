@@ -7,6 +7,7 @@ const {
   mockRegistry,
   tmuxPlugin,
   claudePlugin,
+  codexPlugin,
   opencodePlugin,
   worktreePlugin,
   scmPlugin,
@@ -31,6 +32,7 @@ const {
     mockRegistry,
     tmuxPlugin: { manifest: { name: "tmux" } },
     claudePlugin: { manifest: { name: "claude-code" } },
+    codexPlugin: { manifest: { name: "codex" } },
     opencodePlugin: { manifest: { name: "opencode" } },
     worktreePlugin: { manifest: { name: "worktree" } },
     scmPlugin: { manifest: { name: "github" } },
@@ -192,6 +194,30 @@ describe("services", () => {
 
     await expect(getServices()).resolves.toBeDefined();
     expect(mockCreateSessionManager).toHaveBeenCalledTimes(1);
+  });
+
+  it("registers the Codex agent plugin with web services", async () => {
+    mockLoadConfig.mockReturnValue({
+      configPath: "/tmp/agent-orchestrator.yaml",
+      port: 3000,
+      readyThresholdMs: 300_000,
+      defaults: {
+        runtime: "tmux",
+        agent: "codex",
+        workspace: "worktree",
+        notifiers: [],
+      },
+      projects: {},
+      notifiers: {},
+      notificationRouting: { urgent: [], action: [], warning: [], info: [] },
+      reactions: {},
+    });
+
+    const { getServices } = await import("../lib/services");
+
+    await getServices();
+
+    expect(mockRegister).toHaveBeenCalledWith(codexPlugin);
   });
 
   it("caches initialized services across repeated calls", async () => {
