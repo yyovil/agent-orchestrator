@@ -5,11 +5,6 @@ import "server-only";
  *
  * Lazily initializes config, plugin registry, and session manager.
  * Cached in globalThis to survive Next.js HMR reloads in development.
- *
- * NOTE: Plugins are explicitly imported here because Next.js webpack
- * cannot resolve dynamic `import(variable)` expressions used by the
- * core plugin registry's loadBuiltins(). Static imports let webpack
- * bundle them correctly.
  */
 
 import {
@@ -30,15 +25,87 @@ import {
   TERMINAL_STATUSES,
 } from "@aoagents/ao-core";
 
-// Static plugin imports — webpack needs these to be string literals
-import pluginRuntimeTmux from "@aoagents/ao-plugin-runtime-tmux";
-import pluginAgentClaudeCode from "@aoagents/ao-plugin-agent-claude-code";
-import pluginAgentCursor from "@aoagents/ao-plugin-agent-cursor";
-import pluginAgentOpencode from "@aoagents/ao-plugin-agent-opencode";
-import pluginWorkspaceWorktree from "@aoagents/ao-plugin-workspace-worktree";
-import pluginScmGithub from "@aoagents/ao-plugin-scm-github";
-import pluginTrackerGithub from "@aoagents/ao-plugin-tracker-github";
-import pluginTrackerLinear from "@aoagents/ao-plugin-tracker-linear";
+import { loadBuiltinPluginModule } from "@/lib/load-builtin-plugin";
+
+type BuiltinSlot = "runtime" | "agent" | "workspace" | "scm" | "tracker";
+
+const BUILTIN_PLUGIN_PACKAGES: Record<BuiltinSlot, Record<string, string>> = {
+  runtime: {
+    tmux: "@aoagents/ao-plugin-runtime-tmux",
+    process: "@aoagents/ao-plugin-runtime-process",
+  },
+  agent: {
+    "claude-code": "@aoagents/ao-plugin-agent-claude-code",
+    codex: "@aoagents/ao-plugin-agent-codex",
+    aider: "@aoagents/ao-plugin-agent-aider",
+    cursor: "@aoagents/ao-plugin-agent-cursor",
+    opencode: "@aoagents/ao-plugin-agent-opencode",
+  },
+  workspace: {
+    worktree: "@aoagents/ao-plugin-workspace-worktree",
+    clone: "@aoagents/ao-plugin-workspace-clone",
+  },
+  scm: {
+    github: "@aoagents/ao-plugin-scm-github",
+    gitlab: "@aoagents/ao-plugin-scm-gitlab",
+  },
+  tracker: {
+    github: "@aoagents/ao-plugin-tracker-github",
+    linear: "@aoagents/ao-plugin-tracker-linear",
+    gitlab: "@aoagents/ao-plugin-tracker-gitlab",
+  },
+};
+
+function collectRequiredBuiltins(config: OrchestratorConfig): Array<{ slot: BuiltinSlot; name: string }> {
+  const required = new Map<string, { slot: BuiltinSlot; name: string }>();
+  const add = (slot: BuiltinSlot, name: string | undefined) => {
+    if (!name) return;
+    required.set(`${slot}:${name}`, { slot, name });
+  };
+
+  add("runtime", config.defaults.runtime);
+  add("agent", config.defaults.agent);
+  add("workspace", config.defaults.workspace);
+  add("agent", config.defaults.orchestrator?.agent);
+  add("agent", config.defaults.worker?.agent);
+
+  for (const project of Object.values(config.projects)) {
+    add("runtime", project.runtime);
+    add("agent", project.agent);
+    add("workspace", project.workspace);
+    add("agent", project.orchestrator?.agent);
+    add("agent", project.worker?.agent);
+    add("scm", project.scm?.plugin);
+    add("tracker", project.tracker?.plugin);
+  }
+
+  return [...required.values()];
+}
+
+async function registerRequiredBuiltins(
+  registry: PluginRegistry,
+  config: OrchestratorConfig,
+): Promise<void> {
+  for (const { slot, name } of collectRequiredBuiltins(config)) {
+    const packageName = BUILTIN_PLUGIN_PACKAGES[slot][name];
+    if (!packageName) {
+      // Non-builtin names can come from marketplace/local plugins in config.
+      // Skip them here so the web services keep the old behavior of booting
+      // even when a configured plugin is not part of the bundled built-ins.
+      continue;
+    }
+
+    try {
+      const mod = await loadBuiltinPluginModule(packageName);
+      registry.register((mod.default ?? mod) as Parameters<PluginRegistry["register"]>[0]);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to load built-in ${slot} plugin "${name}": ${reason}`, {
+        cause: err,
+      });
+    }
+  }
+}
 
 export interface Services {
   config: OrchestratorConfig;
@@ -73,15 +140,7 @@ async function initServices(): Promise<Services> {
   const config = loadConfig();
   const registry = createPluginRegistry();
 
-  // Register plugins explicitly (webpack can't handle dynamic import() in core)
-  registry.register(pluginRuntimeTmux);
-  registry.register(pluginAgentClaudeCode);
-  registry.register(pluginAgentCursor);
-  registry.register(pluginAgentOpencode);
-  registry.register(pluginWorkspaceWorktree);
-  registry.register(pluginScmGithub);
-  registry.register(pluginTrackerGithub);
-  registry.register(pluginTrackerLinear);
+  await registerRequiredBuiltins(registry, config);
 
   const sessionManager = createSessionManager({ config, registry });
 

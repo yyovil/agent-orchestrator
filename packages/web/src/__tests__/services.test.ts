@@ -52,13 +52,29 @@ vi.mock("@aoagents/ao-core", () => ({
   TERMINAL_STATUSES: new Set(["merged", "killed"]) as ReadonlySet<string>,
 }));
 
-vi.mock("@aoagents/ao-plugin-runtime-tmux", () => ({ default: tmuxPlugin }));
-vi.mock("@aoagents/ao-plugin-agent-claude-code", () => ({ default: claudePlugin }));
-vi.mock("@aoagents/ao-plugin-agent-opencode", () => ({ default: opencodePlugin }));
-vi.mock("@aoagents/ao-plugin-workspace-worktree", () => ({ default: worktreePlugin }));
-vi.mock("@aoagents/ao-plugin-scm-github", () => ({ default: scmPlugin }));
-vi.mock("@aoagents/ao-plugin-tracker-github", () => ({ default: trackerGithubPlugin }));
-vi.mock("@aoagents/ao-plugin-tracker-linear", () => ({ default: trackerLinearPlugin }));
+// `services.ts#loadBuiltinPluginModule` imports plugins via a `file://` URL,
+// so `vi.mock("@aoagents/ao-plugin-…")` on a bare specifier never intercepts.
+// We mock the extracted helper module instead, keyed by package name.
+const pluginByPackageName: Record<string, { manifest: { name: string } }> = {
+  "@aoagents/ao-plugin-runtime-tmux": tmuxPlugin,
+  "@aoagents/ao-plugin-agent-claude-code": claudePlugin,
+  "@aoagents/ao-plugin-agent-opencode": opencodePlugin,
+  "@aoagents/ao-plugin-workspace-worktree": worktreePlugin,
+  "@aoagents/ao-plugin-scm-github": scmPlugin,
+  "@aoagents/ao-plugin-tracker-github": trackerGithubPlugin,
+  "@aoagents/ao-plugin-tracker-linear": trackerLinearPlugin,
+  "@aoagents/ao-plugin-agent-codex": { manifest: { name: "codex" } },
+};
+
+vi.mock("@/lib/load-builtin-plugin", () => ({
+  loadBuiltinPluginModule: async (packageName: string) => {
+    const plugin = pluginByPackageName[packageName];
+    if (!plugin) {
+      throw new Error(`No mock plugin registered for ${packageName}`);
+    }
+    return { default: plugin };
+  },
+}));
 
 describe("services", () => {
   beforeEach(() => {
@@ -87,11 +103,95 @@ describe("services", () => {
   });
 
   it("registers the OpenCode agent plugin with web services", async () => {
+    mockLoadConfig.mockReturnValue({
+      configPath: "/tmp/agent-orchestrator.yaml",
+      port: 3000,
+      readyThresholdMs: 300_000,
+      defaults: {
+        runtime: "tmux",
+        agent: "claude-code",
+        workspace: "worktree",
+        notifiers: [],
+        worker: { agent: "opencode" },
+      },
+      projects: {},
+      notifiers: {},
+      notificationRouting: { urgent: [], action: [], warning: [], info: [] },
+      reactions: {},
+    });
+
     const { getServices } = await import("../lib/services");
 
     await getServices();
 
-    expect(mockRegister).toHaveBeenCalledWith(opencodePlugin);
+    expect(
+      mockRegister.mock.calls.some(
+        ([plugin]) => (plugin as { manifest?: { name?: string } }).manifest?.name === opencodePlugin.manifest.name,
+      ),
+    ).toBe(true);
+  });
+
+  it("loads built-in plugins from workspace packages when web does not depend on them", async () => {
+    mockLoadConfig.mockReturnValue({
+      configPath: "/tmp/agent-orchestrator.yaml",
+      port: 3000,
+      readyThresholdMs: 300_000,
+      defaults: {
+        runtime: "tmux",
+        agent: "codex",
+        workspace: "worktree",
+        notifiers: [],
+      },
+      projects: {},
+      notifiers: {},
+      notificationRouting: { urgent: [], action: [], warning: [], info: [] },
+      reactions: {},
+    });
+
+    const { getServices } = await import("../lib/services");
+
+    await getServices();
+
+    expect(
+      mockRegister.mock.calls.some(
+        ([plugin]) => (plugin as { manifest?: { name?: string } }).manifest?.name === "codex",
+      ),
+    ).toBe(true);
+  });
+
+  it("skips non-builtin plugin names so external plugins do not break startup", async () => {
+    mockLoadConfig.mockReturnValue({
+      configPath: "/tmp/agent-orchestrator.yaml",
+      port: 3000,
+      readyThresholdMs: 300_000,
+      defaults: {
+        runtime: "tmux",
+        agent: "claude-code",
+        workspace: "worktree",
+        notifiers: [],
+      },
+      plugins: [
+        {
+          name: "custom-tracker",
+          source: "npm",
+          package: "@acme/ao-plugin-tracker-custom",
+        },
+      ],
+      projects: {
+        "test-project": {
+          path: "/tmp/test-project",
+          tracker: { plugin: "custom-tracker" },
+        },
+      },
+      notifiers: {},
+      notificationRouting: { urgent: [], action: [], warning: [], info: [] },
+      reactions: {},
+    });
+
+    const { getServices } = await import("../lib/services");
+
+    await expect(getServices()).resolves.toBeDefined();
+    expect(mockCreateSessionManager).toHaveBeenCalledTimes(1);
   });
 
   it("caches initialized services across repeated calls", async () => {
