@@ -9,10 +9,11 @@ import type { TerminalLifecycleEvent } from "@/providers/MuxProvider";
 import { attachTouchScroll } from "@/lib/terminal-touch-scroll";
 
 // Import xterm CSS (must be imported in client component)
-import "xterm/css/xterm.css";
+import "@xterm/xterm/css/xterm.css";
 
-// Dynamically import xterm types for TypeScript
-import type { ITheme, Terminal as TerminalType } from "xterm";
+// Static type-only imports (erased at compile time, no SSR impact).
+// The runtime Terminal class is loaded via dynamic import() inside useEffect to avoid SSR.
+import type { ITheme, Terminal as TerminalType } from "@xterm/xterm";
 import type { FitAddon as FitAddonType } from "@xterm/addon-fit";
 
 // Font size constants
@@ -236,7 +237,7 @@ export function DirectTerminal({
     let unsubscribeLifecycle: (() => void) | null = null;
 
     Promise.all([
-      import("xterm").then((mod) => mod.Terminal),
+      import("@xterm/xterm").then((mod) => mod.Terminal),
       import("@xterm/addon-fit").then((mod) => mod.FitAddon),
       import("@xterm/addon-web-links").then((mod) => mod.WebLinksAddon),
       document.fonts.ready,
@@ -259,7 +260,6 @@ export function DirectTerminal({
           minimumContrastRatio: isDark ? 1 : 7,
           scrollback: 10000,
           allowProposedApi: true,
-          fastScrollModifier: "alt",
           fastScrollSensitivity: 3,
           scrollSensitivity: 1,
         });
