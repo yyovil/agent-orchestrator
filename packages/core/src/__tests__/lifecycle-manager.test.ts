@@ -815,6 +815,7 @@ describe("check (single session)", () => {
         status: "working",
         branch: "feat/test",
         pr: null,
+        workspacePath: null,
         metadata: { agent: "mock-agent" },
       }),
       metaOverrides: { branch: "feat/test", agent: "mock-agent" },
@@ -868,6 +869,44 @@ describe("check (single session)", () => {
     );
     const meta = readMetadataRaw(env.sessionsDir, "app-1");
     expect(meta?.["branch"]).toBe("fix-login-v2");
+  });
+
+  it("clears stale worker branch metadata when the current worktree HEAD is detached", async () => {
+    const workspacePath = join(env.tmpDir, "worker-ws-detached");
+    const gitDir = join(env.tmpDir, "repo", ".git", "worktrees", "app-1-detached");
+    mkdirSync(workspacePath, { recursive: true });
+    mkdirSync(gitDir, { recursive: true });
+    writeFileSync(join(workspacePath, ".git"), `gitdir: ${gitDir}\n`);
+    writeFileSync(join(gitDir, "HEAD"), "6f1d2c3b4a5e67890123456789abcdef01234567\n");
+
+    const mockSCM = createMockSCM({ detectPR: vi.fn().mockResolvedValue(null) });
+    const registry = createMockRegistry({
+      runtime: plugins.runtime,
+      agent: plugins.agent,
+      scm: mockSCM,
+    });
+
+    const lm = setupCheck("app-1", {
+      session: makeSession({
+        status: "working",
+        branch: "fix-login",
+        workspacePath,
+        pr: null,
+        metadata: { agent: "mock-agent" },
+      }),
+      metaOverrides: {
+        worktree: workspacePath,
+        branch: "fix-login",
+        agent: "mock-agent",
+      },
+      registry,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSCM.detectPR).not.toHaveBeenCalled();
+    const meta = readMetadataRaw(env.sessionsDir, "app-1");
+    expect(meta?.["branch"]).toBeUndefined();
   });
 
   it("preserves stuck state when getActivityState throws", async () => {
@@ -1338,6 +1377,7 @@ describe("reactions", () => {
     const staleSession = makeSession({
       id: "app-1",
       status: "working",
+      workspacePath: null,
       createdAt: new Date("2025-01-01T11:40:00.000Z"),
       metadata: {
         createdAt: "2025-01-01T11:40:00.000Z",

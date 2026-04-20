@@ -619,15 +619,15 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const agent = registry.get<Agent>("agent", agentName);
     const scm = project.scm?.plugin ? registry.get<SCM>("scm", project.scm.plugin) : null;
 
-    const currentBranch = session.workspacePath
-      ? await readWorkspaceBranch(session.workspacePath)
-      : null;
-    if (currentBranch && currentBranch !== session.branch) {
-      session.branch = currentBranch;
-      if (session.pr) {
-        session.pr.branch = currentBranch;
+    if (session.workspacePath) {
+      const currentBranch = await readWorkspaceBranch(session.workspacePath);
+      if (currentBranch !== session.branch) {
+        session.branch = currentBranch;
+        if (session.pr && currentBranch) {
+          session.pr.branch = currentBranch;
+        }
+        updateSessionMetadata(session, { branch: currentBranch ?? "" });
       }
-      updateSessionMetadata(session, { branch: currentBranch });
     }
 
     let detectedIdleTimestamp: Date | null = null;
