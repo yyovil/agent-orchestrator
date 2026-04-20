@@ -1,0 +1,5 @@
+#compdef ao
+
+(( $+commands[ao] )) || return 1
+
+eval "$(command ao completion zsh 2>/dev/null)"
