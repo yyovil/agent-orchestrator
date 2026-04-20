@@ -139,9 +139,11 @@ describe("list", () => {
 describe("loadBuiltins", () => {
   it("silently skips unavailable packages", async () => {
     const registry = createPluginRegistry();
-    // loadBuiltins tries to import all built-in packages.
-    // In the test environment, most are not resolvable — should not throw.
-    await expect(registry.loadBuiltins()).resolves.toBeUndefined();
+    const importUnavailable = async (pkg: string): Promise<unknown> => {
+      throw new Error(`Not found: ${pkg}`);
+    };
+
+    await expect(registry.loadBuiltins(undefined, importUnavailable)).resolves.toBeUndefined();
   });
 
   it("registers multiple agent plugins from importFn", async () => {
@@ -482,10 +484,11 @@ describe("loadFromConfig", () => {
   it("does not throw when no plugins are importable", async () => {
     const registry = createPluginRegistry();
     const config = makeOrchestratorConfig({});
+    const importUnavailable = async (pkg: string): Promise<unknown> => {
+      throw new Error(`Not found: ${pkg}`);
+    };
 
-    // loadFromConfig calls loadBuiltins internally, which may fail to
-    // import packages in the test env — should still succeed gracefully
-    await expect(registry.loadFromConfig(config)).resolves.toBeUndefined();
+    await expect(registry.loadFromConfig(config, importUnavailable)).resolves.toBeUndefined();
   });
 
   it("should pass importFn through loadFromConfig to loadBuiltins", async () => {
