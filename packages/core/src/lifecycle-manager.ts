@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   ACTIVITY_STATE,
@@ -92,26 +92,28 @@ function parseDuration(str: string): number {
   }
 }
 
-function resolveGitDir(workspacePath: string): string | null {
+async function resolveGitDir(workspacePath: string): Promise<string | null> {
   const dotGitPath = join(workspacePath, ".git");
-  if (!existsSync(dotGitPath)) return null;
+  try {
+    const dotGitStats = await stat(dotGitPath);
+    if (dotGitStats.isDirectory()) return dotGitPath;
 
-  const dotGitStats = statSync(dotGitPath);
-  if (dotGitStats.isDirectory()) return dotGitPath;
+    const dotGitContent = (await readFile(dotGitPath, "utf8")).trim();
+    const gitDirMatch = dotGitContent.match(/^gitdir:\s*(.+)$/i);
+    if (!gitDirMatch) return null;
 
-  const dotGitContent = readFileSync(dotGitPath, "utf8").trim();
-  const gitDirMatch = dotGitContent.match(/^gitdir:\s*(.+)$/i);
-  if (!gitDirMatch) return null;
-
-  return resolve(dirname(dotGitPath), gitDirMatch[1].trim());
+    return resolve(dirname(dotGitPath), gitDirMatch[1].trim());
+  } catch {
+    return null;
+  }
 }
 
-function readWorkspaceBranch(workspacePath: string): string | null {
+async function readWorkspaceBranch(workspacePath: string): Promise<string | null> {
   try {
-    const gitDir = resolveGitDir(workspacePath);
+    const gitDir = await resolveGitDir(workspacePath);
     if (!gitDir) return null;
 
-    const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
+    const head = (await readFile(join(gitDir, "HEAD"), "utf8")).trim();
     const prefix = "ref: refs/heads/";
     if (!head.startsWith(prefix)) return null;
 
@@ -617,7 +619,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const agent = registry.get<Agent>("agent", agentName);
     const scm = project.scm?.plugin ? registry.get<SCM>("scm", project.scm.plugin) : null;
 
-    const currentBranch = session.workspacePath ? readWorkspaceBranch(session.workspacePath) : null;
+    const currentBranch = session.workspacePath
+      ? await readWorkspaceBranch(session.workspacePath)
+      : null;
     if (currentBranch && currentBranch !== session.branch) {
       session.branch = currentBranch;
       if (session.pr) {

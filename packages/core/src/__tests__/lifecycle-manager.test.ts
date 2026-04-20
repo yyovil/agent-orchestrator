@@ -2444,7 +2444,7 @@ describe("rate limiting optimizations", () => {
       scm: mockSCM,
     });
 
-    const session = makeSession({ id: "s-1", status: "pr_open", pr });
+    const session = makeSession({ id: "s-1", status: "pr_open", pr, workspacePath: null });
     vi.mocked(mockSessionManager.list).mockResolvedValue([session]);
     vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
 
@@ -2457,6 +2457,77 @@ describe("rate limiting optimizations", () => {
     expect(getMergeabilityMock).not.toHaveBeenCalled();
     // Conflict notification should have been sent
     expect(mockSessionManager.send).toHaveBeenCalledWith("s-1", "Resolve conflicts.");
+  });
+
+  it("skips getCIChecks() when batch enrichment has ciChecks data", async () => {
+    config.reactions = {
+      "ci-failed": {
+        auto: true,
+        action: "send-to-agent",
+        message: "CI failing.",
+        retries: 3,
+        escalateAfter: 3,
+      },
+    };
+
+    const pr = makeMatchingPR();
+    const getCIChecksMock = vi.fn();
+    const mockSCM = createMockSCM({
+      getCIChecks: getCIChecksMock,
+      getCISummary: vi.fn().mockResolvedValue("failing"),
+      enrichSessionsPRBatch: vi.fn().mockResolvedValue(
+        new Map([
+          [
+            `${pr.owner}/${pr.repo}#${pr.number}`,
+            {
+              state: "open" as const,
+              ciStatus: "failing" as const,
+              reviewDecision: "none" as const,
+              mergeable: false,
+              hasConflicts: false,
+              ciChecks: [
+                { name: "lint", status: "failed" as const, conclusion: "FAILURE", url: "https://example.com/lint" },
+                { name: "test", status: "passed" as const, conclusion: "SUCCESS" },
+              ],
+            },
+          ],
+        ]),
+      ),
+    });
+
+    const registry = createMockRegistry({
+      runtime: plugins.runtime,
+      agent: plugins.agent,
+      scm: mockSCM,
+    });
+
+    // Start with pr_open state so that ci_failed transition happens on first poll
+    const session = makeSession({ id: "s-2", status: "pr_open", pr, workspacePath: null });
+    vi.mocked(mockSessionManager.list).mockResolvedValue([session]);
+    vi.mocked(mockSessionManager.send).mockResolvedValue(undefined);
+
+    const lm = createLifecycleManager({ config, registry, sessionManager: mockSessionManager });
+    lm.start(60_000);
+    // First poll: transitions to ci_failed, sends reaction message
+    await vi.advanceTimersByTimeAsync(0);
+
+    vi.mocked(mockSessionManager.send).mockClear();
+
+    // Second poll: dispatches detailed CI failure info
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // getCIChecks() should NOT be called — batch enrichment has ciChecks
+    expect(getCIChecksMock).not.toHaveBeenCalled();
+    // Detailed message with lint check name/URL should be sent
+    const calls = vi.mocked(mockSessionManager.send).mock.calls;
+    const sentMessages = calls.map((c) => c[1] as string);
+    const detailMessage = sentMessages.find((m) => m.includes("lint"));
+    expect(detailMessage).toBeDefined();
+    expect(detailMessage).toContain("https://example.com/lint");
+    // Passing check should not be included
+    expect(detailMessage).not.toContain("test");
+
+    lm.stop();
   });
 
   it("throttles review backlog API calls to at most once per 2 minutes", async () => {
