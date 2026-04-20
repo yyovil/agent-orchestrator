@@ -37,7 +37,7 @@ import {
   type ParsedRepoUrl,
   type Session,
 } from "@aoagents/ao-core";
-import { parse as yamlParse, stringify as yamlStringify } from "yaml";
+import { parse as yamlParse } from "yaml";
 import { exec, execSilent, git } from "../lib/shell.js";
 import { getSessionManager } from "../lib/create-session-manager.js";
 import { ensureLifecycleWorker, stopAllLifecycleWorkers } from "../lib/lifecycle-service.js";
@@ -640,7 +640,7 @@ async function autoCreateConfig(workingDir: string): Promise<OrchestratorConfig>
     console.log(chalk.dim("  Use 'ao start' to start with the existing config.\n"));
     return loadConfig(outputPath);
   }
-  const yamlContent = yamlStringify(config, { indent: 2 });
+  const yamlContent = configToYaml(config);
   writeFileSync(outputPath, yamlContent);
 
   console.log(chalk.green(`✓ Config created: ${outputPath}\n`));
@@ -798,7 +798,7 @@ async function addProjectToConfig(
     ...(agentRules ? { agentRules } : {}),
   };
 
-  writeFileSync(config.configPath, yamlStringify(rawConfig, { indent: 2 }));
+  writeFileSync(config.configPath, configToYaml(rawConfig as Record<string, unknown>));
   console.log(chalk.green(`\n✓ Added "${projectId}" to ${config.configPath}\n`));
 
   if (!ownerRepo) {
@@ -1547,7 +1547,7 @@ export function registerStart(program: Command): void {
               ...rawConfig.projects[projectId],
               sessionPrefix: newPrefix,
             };
-            writeFileSync(config.configPath, yamlStringify(rawConfig, { indent: 2 }));
+            writeFileSync(config.configPath, configToYaml(rawConfig as Record<string, unknown>));
             console.log(chalk.green(`\n✓ New orchestrator "${newId}" added to config\n`));
             config = loadConfig(config.configPath);
             projectId = newId;
@@ -1564,7 +1564,7 @@ export function registerStart(program: Command): void {
             const proj = rawConfig.projects[projectId];
             proj.orchestrator = { ...(proj.orchestrator ?? {}), agent: orchestratorAgent };
             proj.worker = { ...(proj.worker ?? {}), agent: workerAgent };
-            writeFileSync(config.configPath, yamlStringify(rawConfig, { indent: 2 }));
+            writeFileSync(config.configPath, configToYaml(rawConfig as Record<string, unknown>));
             console.log(chalk.dim(`  ✓ Saved to ${config.configPath}\n`));
             
             config = loadConfig(config.configPath);

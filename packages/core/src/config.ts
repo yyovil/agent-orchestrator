@@ -270,6 +270,7 @@ const LifecycleConfigSchema = z
   .default({});
 
 const OrchestratorConfigSchema = z.object({
+  $schema: z.string().optional(),
   port: z.number().default(3000),
   terminalPort: z.number().optional(),
   directTerminalPort: z.number().optional(),
