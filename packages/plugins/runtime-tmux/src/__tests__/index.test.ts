@@ -17,6 +17,10 @@ vi.mock("node:crypto", () => ({
   randomUUID: () => "test-uuid-1234",
 }));
 
+vi.mock("node:timers/promises", () => ({
+  setTimeout: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock node:fs for writeFileSync / unlinkSync
 vi.mock("node:fs", () => ({
   writeFileSync: vi.fn(),
@@ -55,6 +59,7 @@ function makeHandle(id: string, createdAt?: number): RuntimeHandle {
 import tmuxPlugin, { manifest, create } from "../index.js";
 
 beforeEach(() => {
+  mockExecFileCustom.mockReset();
   vi.clearAllMocks();
 });
 
@@ -278,25 +283,79 @@ describe("runtime.create()", () => {
 });
 
 describe("runtime.destroy()", () => {
-  it("calls kill-session with the handle id", async () => {
+  it("falls back to kill-session when pane tty lookup fails", async () => {
     const runtime = create();
     const handle = makeHandle("destroy-test");
 
+    mockTmuxError("list-panes failed");
     mockTmuxSuccess();
 
     await runtime.destroy(handle);
 
-    expect(mockExecFileCustom).toHaveBeenCalledWith(
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      1,
+      "tmux",
+      ["list-panes", "-t", "destroy-test", "-F", "#{pane_tty}"],
+      expectedTmuxOptions,
+    );
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      2,
       "tmux",
       ["kill-session", "-t", "destroy-test"],
       expectedTmuxOptions,
     );
   });
 
+  it("terminates remaining pane processes after killing the tmux session", async () => {
+    const runtime = create();
+    const handle = makeHandle("destroy-test");
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+
+    mockExecFileCustom
+      .mockResolvedValueOnce({ stdout: "/dev/ttys004\n", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "101\n102\n", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "102\n", stderr: "" });
+
+    await runtime.destroy(handle);
+
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      1,
+      "tmux",
+      ["list-panes", "-t", "destroy-test", "-F", "#{pane_tty}"],
+      expectedTmuxOptions,
+    );
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      2,
+      "tmux",
+      ["kill-session", "-t", "destroy-test"],
+      expectedTmuxOptions,
+    );
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      3,
+      "ps",
+      ["-t", "ttys004", "-o", "pid="],
+      expectedTmuxOptions,
+    );
+    expect(mockExecFileCustom).toHaveBeenNthCalledWith(
+      4,
+      "ps",
+      ["-t", "ttys004", "-o", "pid="],
+      expectedTmuxOptions,
+    );
+
+    expect(killSpy).toHaveBeenNthCalledWith(1, 101, "SIGTERM");
+    expect(killSpy).toHaveBeenNthCalledWith(2, 102, "SIGTERM");
+    expect(killSpy).toHaveBeenNthCalledWith(3, 102, "SIGKILL");
+
+    killSpy.mockRestore();
+  });
+
   it("does not throw if session is already gone", async () => {
     const runtime = create();
     const handle = makeHandle("already-dead");
 
+    mockTmuxError("list-panes failed");
     mockTmuxError("session not found: already-dead");
 
     // Should not throw

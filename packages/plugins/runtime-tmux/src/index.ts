@@ -17,6 +17,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const TMUX_COMMAND_TIMEOUT_MS = 5_000;
+const PROCESS_CLEANUP_GRACE_MS = 1_000;
 
 export const manifest = {
   name: "tmux",
@@ -47,6 +48,64 @@ async function tmux(...args: string[]): Promise<string> {
     timeout: TMUX_COMMAND_TIMEOUT_MS,
   });
   return stdout.trimEnd();
+}
+
+async function getPaneTTY(sessionName: string): Promise<string | null> {
+  try {
+    const output = await tmux("list-panes", "-t", sessionName, "-F", "#{pane_tty}");
+    const tty = output
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean);
+    return tty ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeTTY(tty: string): string {
+  return tty.startsWith("/dev/") ? tty.slice("/dev/".length) : tty;
+}
+
+async function getProcessIdsForTTY(tty: string): Promise<number[]> {
+  try {
+    const { stdout } = await execFileAsync(
+      "ps",
+      ["-t", normalizeTTY(tty), "-o", "pid="],
+      { timeout: TMUX_COMMAND_TIMEOUT_MS },
+    );
+    return stdout
+      .split("\n")
+      .map((line) => Number.parseInt(line.trim(), 10))
+      .filter((pid) => Number.isInteger(pid) && pid > 0);
+  } catch {
+    return [];
+  }
+}
+
+function signalProcesses(pids: number[], signal: NodeJS.Signals): void {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // Best-effort cleanup: a process may have already exited between polls.
+    }
+  }
+}
+
+async function cleanupTTYProcesses(tty: string): Promise<void> {
+  let remaining = await getProcessIdsForTTY(tty);
+  if (remaining.length === 0) {
+    return;
+  }
+
+  signalProcesses(remaining, "SIGTERM");
+  await sleep(PROCESS_CLEANUP_GRACE_MS);
+
+  remaining = await getProcessIdsForTTY(tty);
+  if (remaining.length > 0) {
+    signalProcesses(remaining, "SIGKILL");
+  }
 }
 
 export function create(): Runtime {
@@ -101,10 +160,15 @@ export function create(): Runtime {
     },
 
     async destroy(handle: RuntimeHandle): Promise<void> {
+      const paneTTY = await getPaneTTY(handle.id);
       try {
         await tmux("kill-session", "-t", handle.id);
       } catch {
         // Session may already be dead — that's fine
+      }
+
+      if (paneTTY) {
+        await cleanupTTYProcesses(paneTTY);
       }
     },
 
