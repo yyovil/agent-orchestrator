@@ -871,6 +871,45 @@ describe("check (single session)", () => {
     expect(meta?.["branch"]).toBe("fix-login-v2");
   });
 
+  it("refreshes worker branch metadata for clone-style repos with a .git directory", async () => {
+    const workspacePath = join(env.tmpDir, "worker-clone");
+    const gitDir = join(workspacePath, ".git");
+    mkdirSync(gitDir, { recursive: true });
+    writeFileSync(join(gitDir, "HEAD"), "ref: refs/heads/fix-login-v2\n");
+
+    const mockSCM = createMockSCM({ detectPR: vi.fn().mockResolvedValue(null) });
+    const registry = createMockRegistry({
+      runtime: plugins.runtime,
+      agent: plugins.agent,
+      scm: mockSCM,
+    });
+
+    const lm = setupCheck("app-1", {
+      session: makeSession({
+        status: "working",
+        branch: "fix-login",
+        workspacePath,
+        pr: null,
+        metadata: { agent: "mock-agent" },
+      }),
+      metaOverrides: {
+        worktree: workspacePath,
+        branch: "fix-login",
+        agent: "mock-agent",
+      },
+      registry,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSCM.detectPR).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "fix-login-v2" }),
+      expect.anything(),
+    );
+    const meta = readMetadataRaw(env.sessionsDir, "app-1");
+    expect(meta?.["branch"]).toBe("fix-login-v2");
+  });
+
   it("does not overwrite an attached PR branch from a workspace checkout change", async () => {
     const workspacePath = join(env.tmpDir, "worker-ws-pr");
     const gitDir = join(env.tmpDir, "repo", ".git", "worktrees", "app-1-pr");
@@ -912,6 +951,65 @@ describe("check (single session)", () => {
     expect(meta?.["branch"]).toBe("fix-login");
   });
 
+  it("refreshes branch metadata again after a closed PR when the worker switches branches", async () => {
+    const workspacePath = join(env.tmpDir, "worker-ws-closed-pr");
+    const gitDir = join(env.tmpDir, "repo", ".git", "worktrees", "app-1-closed-pr");
+    mkdirSync(workspacePath, { recursive: true });
+    mkdirSync(gitDir, { recursive: true });
+    writeFileSync(join(workspacePath, ".git"), `gitdir: ${gitDir}\n`);
+    writeFileSync(join(gitDir, "HEAD"), "ref: refs/heads/follow-up-fix\n");
+
+    const closedPR = makePR({ branch: "fix-login", url: "https://github.com/org/repo/pull/42" });
+    const followUpPR = makePR({
+      number: 43,
+      branch: "follow-up-fix",
+      url: "https://github.com/org/repo/pull/43",
+      title: "Follow up fix",
+    });
+    const mockSCM = createMockSCM({ detectPR: vi.fn().mockResolvedValue(followUpPR) });
+    const registry = createMockRegistry({
+      runtime: plugins.runtime,
+      agent: plugins.agent,
+      scm: mockSCM,
+    });
+
+    const session = makeSession({
+      status: "idle",
+      branch: "fix-login",
+      workspacePath,
+      pr: closedPR,
+      metadata: { agent: "mock-agent" },
+    });
+    session.lifecycle.pr.state = "closed";
+    session.lifecycle.pr.reason = "closed_unmerged";
+    session.lifecycle.pr.number = closedPR.number;
+    session.lifecycle.pr.url = closedPR.url;
+    session.lifecycle.pr.lastObservedAt = new Date().toISOString();
+    session.lifecycle.session.state = "idle";
+    session.lifecycle.session.reason = "pr_closed_waiting_decision";
+
+    const lm = setupCheck("app-1", {
+      session,
+      metaOverrides: {
+        worktree: workspacePath,
+        branch: "fix-login",
+        pr: closedPR.url,
+        agent: "mock-agent",
+      },
+      registry,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockSCM.detectPR).toHaveBeenCalledWith(
+      expect.objectContaining({ branch: "follow-up-fix" }),
+      expect.anything(),
+    );
+    const meta = readMetadataRaw(env.sessionsDir, "app-1");
+    expect(meta?.["branch"]).toBe("follow-up-fix");
+    expect(meta?.["pr"]).toBe(followUpPR.url);
+  });
+
   it("clears stale worker branch metadata when the current worktree HEAD is detached", async () => {
     const workspacePath = join(env.tmpDir, "worker-ws-detached");
     const gitDir = join(env.tmpDir, "repo", ".git", "worktrees", "app-1-detached");
@@ -949,6 +1047,63 @@ describe("check (single session)", () => {
     const meta = readMetadataRaw(env.sessionsDir, "app-1");
     expect(meta?.["branch"]).toBeUndefined();
   });
+
+  for (const marker of [
+    "rebase-merge",
+    "rebase-apply",
+    "CHERRY_PICK_HEAD",
+    "BISECT_LOG",
+  ] as const) {
+    it(`keeps the previous branch during transient detached git state: ${marker}`, async () => {
+      const workspacePath = join(env.tmpDir, `worker-ws-${marker}`);
+      const gitDir = join(env.tmpDir, "repo", ".git", "worktrees", `app-1-${marker}`);
+      mkdirSync(workspacePath, { recursive: true });
+      mkdirSync(gitDir, { recursive: true });
+      writeFileSync(join(workspacePath, ".git"), `gitdir: ${gitDir}\n`);
+      writeFileSync(join(gitDir, "HEAD"), "6f1d2c3b4a5e67890123456789abcdef01234567\n");
+      if (marker.includes("/")) {
+        mkdirSync(join(gitDir, marker), { recursive: true });
+      } else {
+        if (marker === "rebase-merge" || marker === "rebase-apply") {
+          mkdirSync(join(gitDir, marker), { recursive: true });
+        } else {
+          writeFileSync(join(gitDir, marker), "in-progress\n");
+        }
+      }
+
+      const mockSCM = createMockSCM({ detectPR: vi.fn().mockResolvedValue(null) });
+      const registry = createMockRegistry({
+        runtime: plugins.runtime,
+        agent: plugins.agent,
+        scm: mockSCM,
+      });
+
+      const lm = setupCheck("app-1", {
+        session: makeSession({
+          status: "working",
+          branch: "fix-login",
+          workspacePath,
+          pr: null,
+          metadata: { agent: "mock-agent" },
+        }),
+        metaOverrides: {
+          worktree: workspacePath,
+          branch: "fix-login",
+          agent: "mock-agent",
+        },
+        registry,
+      });
+
+      await lm.check("app-1");
+
+      expect(mockSCM.detectPR).toHaveBeenCalledWith(
+        expect.objectContaining({ branch: "fix-login" }),
+        expect.anything(),
+      );
+      const meta = readMetadataRaw(env.sessionsDir, "app-1");
+      expect(meta?.["branch"]).toBe("fix-login");
+    });
+  }
 
   it("keeps existing branch metadata when the current worktree HEAD cannot be read", async () => {
     const workspacePath = join(env.tmpDir, "worker-ws-missing-head");
@@ -1041,6 +1196,98 @@ describe("check (single session)", () => {
     );
     const meta = readMetadataRaw(env.sessionsDir, "app-1");
     expect(meta?.["branch"]).toBe("fix-login");
+  });
+
+  it("serializes competing branch adoption within one poll cycle without extra session list calls", async () => {
+    const workspacePathA = join(env.tmpDir, "worker-ws-race-a");
+    const workspacePathB = join(env.tmpDir, "worker-ws-race-b");
+    const gitDirA = join(env.tmpDir, "repo", ".git", "worktrees", "app-1-race");
+    const gitDirB = join(env.tmpDir, "repo", ".git", "worktrees", "app-2-race");
+    mkdirSync(workspacePathA, { recursive: true });
+    mkdirSync(workspacePathB, { recursive: true });
+    mkdirSync(gitDirA, { recursive: true });
+    mkdirSync(gitDirB, { recursive: true });
+    writeFileSync(join(workspacePathA, ".git"), `gitdir: ${gitDirA}\n`);
+    writeFileSync(join(workspacePathB, ".git"), `gitdir: ${gitDirB}\n`);
+    writeFileSync(join(gitDirA, "HEAD"), "ref: refs/heads/shared-branch\n");
+    writeFileSync(join(gitDirB, "HEAD"), "ref: refs/heads/shared-branch\n");
+
+    const sessionA = makeSession({
+      id: "app-1",
+      status: "working",
+      branch: "old-a",
+      workspacePath: workspacePathA,
+      pr: null,
+      metadata: { agent: "mock-agent" },
+    });
+    const sessionB = makeSession({
+      id: "app-2",
+      status: "working",
+      branch: "old-b",
+      workspacePath: workspacePathB,
+      pr: null,
+      metadata: { agent: "mock-agent" },
+    });
+    vi.mocked(mockSessionManager.list).mockResolvedValue([sessionA, sessionB]);
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    try {
+      lm.start(60_000);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      const adoptedCount = [sessionA.branch, sessionB.branch].filter(
+        (branch) => branch === "shared-branch",
+      ).length;
+      expect(adoptedCount).toBe(1);
+      expect(mockSessionManager.list).toHaveBeenCalledTimes(1);
+    } finally {
+      lm.stop();
+    }
+  });
+
+  it("skips branch refresh for orchestrator sessions", async () => {
+    const workspacePath = join(env.tmpDir, "orchestrator-ws");
+    const gitDir = join(env.tmpDir, "repo", ".git", "worktrees", "app-orchestrator-1");
+    mkdirSync(workspacePath, { recursive: true });
+    mkdirSync(gitDir, { recursive: true });
+    writeFileSync(join(workspacePath, ".git"), `gitdir: ${gitDir}\n`);
+    writeFileSync(join(gitDir, "HEAD"), "ref: refs/heads/orchestrator-new\n");
+
+    const mockSCM = createMockSCM({ detectPR: vi.fn().mockResolvedValue(null) });
+    const registry = createMockRegistry({
+      runtime: plugins.runtime,
+      agent: plugins.agent,
+      scm: mockSCM,
+    });
+
+    const lm = setupCheck("app-orchestrator-1", {
+      session: makeSession({
+        id: "app-orchestrator-1",
+        status: "working",
+        branch: "orchestrator-old",
+        workspacePath,
+        pr: null,
+        metadata: { agent: "mock-agent", role: "orchestrator" },
+      }),
+      metaOverrides: {
+        worktree: workspacePath,
+        branch: "orchestrator-old",
+        role: "orchestrator",
+        agent: "mock-agent",
+      },
+      registry,
+    });
+
+    await lm.check("app-orchestrator-1");
+
+    expect(mockSCM.detectPR).not.toHaveBeenCalled();
+    const meta = readMetadataRaw(env.sessionsDir, "app-orchestrator-1");
+    expect(meta?.["branch"]).toBe("orchestrator-old");
   });
 
   it("preserves stuck state when getActivityState throws", async () => {
@@ -1662,19 +1909,22 @@ describe("reactions", () => {
     };
 
     const mockSCM = createMockSCM({
-      getReviewThreads: vi.fn().mockResolvedValue({ threads: [
-        {
-          id: "c1",
-          author: "reviewer",
-          body: "Please rename this helper",
-          path: "src/app.ts",
-          line: 12,
-          isResolved: false,
-          createdAt: new Date(),
-          url: "https://example.com/comment/1",
-          isBot: false,
-        },
-      ], reviews: [] }),
+      getReviewThreads: vi.fn().mockResolvedValue({
+        threads: [
+          {
+            id: "c1",
+            author: "reviewer",
+            body: "Please rename this helper",
+            path: "src/app.ts",
+            line: 12,
+            isResolved: false,
+            createdAt: new Date(),
+            url: "https://example.com/comment/1",
+            isBot: false,
+          },
+        ],
+        reviews: [],
+      }),
     });
     const registry = createMockRegistry({
       runtime: plugins.runtime,
@@ -1719,24 +1969,30 @@ describe("reactions", () => {
         const result = new Map();
         for (const pr of prs) {
           result.set(`${pr.owner}/${pr.repo}#${pr.number}`, {
-            state: "open", ciStatus: "passing", reviewDecision: "changes_requested", mergeable: false,
+            state: "open",
+            ciStatus: "passing",
+            reviewDecision: "changes_requested",
+            mergeable: false,
           });
         }
         return result;
       }),
-      getReviewThreads: vi.fn().mockResolvedValue({ threads: [
-        {
-          id: "c1",
-          author: "reviewer",
-          body: "Please add validation",
-          path: "src/route.ts",
-          line: 44,
-          isResolved: false,
-          createdAt: new Date(),
-          url: "https://example.com/comment/2",
-          isBot: false,
-        },
-      ], reviews: [] }),
+      getReviewThreads: vi.fn().mockResolvedValue({
+        threads: [
+          {
+            id: "c1",
+            author: "reviewer",
+            body: "Please add validation",
+            path: "src/route.ts",
+            line: 44,
+            isResolved: false,
+            createdAt: new Date(),
+            url: "https://example.com/comment/2",
+            isBot: false,
+          },
+        ],
+        reviews: [],
+      }),
     });
     const registry = createMockRegistry({
       runtime: plugins.runtime,
@@ -1771,19 +2027,22 @@ describe("reactions", () => {
     };
 
     const mockSCM = createMockSCM({
-      getReviewThreads: vi.fn().mockResolvedValue({ threads: [
-        {
-          id: "bot-1",
-          author: "cursor[bot]",
-          body: "Potential issue detected",
-          path: "src/worker.ts",
-          line: 9,
-          isResolved: false,
-          createdAt: new Date(),
-          url: "https://example.com/comment/3",
-          isBot: true,
-        },
-      ], reviews: [] }),
+      getReviewThreads: vi.fn().mockResolvedValue({
+        threads: [
+          {
+            id: "bot-1",
+            author: "cursor[bot]",
+            body: "Potential issue detected",
+            path: "src/worker.ts",
+            line: 9,
+            isResolved: false,
+            createdAt: new Date(),
+            url: "https://example.com/comment/3",
+            isBot: true,
+          },
+        ],
+        reviews: [],
+      }),
     });
     const registry = createMockRegistry({
       runtime: plugins.runtime,
@@ -1826,19 +2085,22 @@ describe("reactions", () => {
     };
 
     const mockSCM = createMockSCM({
-      getReviewThreads: vi.fn().mockResolvedValue({ threads: [
-        {
-          id: "bot-1",
-          author: "cursor[bot]",
-          body: "Potential issue detected",
-          path: "src/worker.ts",
-          line: 9,
-          isResolved: false,
-          createdAt: new Date(),
-          url: "https://example.com/comment/3",
-          isBot: true,
-        },
-      ], reviews: [] }),
+      getReviewThreads: vi.fn().mockResolvedValue({
+        threads: [
+          {
+            id: "bot-1",
+            author: "cursor[bot]",
+            body: "Potential issue detected",
+            path: "src/worker.ts",
+            line: 9,
+            isResolved: false,
+            createdAt: new Date(),
+            url: "https://example.com/comment/3",
+            isBot: true,
+          },
+        ],
+        reviews: [],
+      }),
     });
     const registry = createMockRegistry({
       runtime: plugins.runtime,
@@ -2510,13 +2772,13 @@ describe("pollAll terminal status accounting", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     // all-complete should NOT have fired — "working" is still active
-    const allCompleteNotifications = vi.mocked(notifier.notify).mock.calls.filter(
-      (call: unknown[]) => {
+    const allCompleteNotifications = vi
+      .mocked(notifier.notify)
+      .mock.calls.filter((call: unknown[]) => {
         const event = call[0] as Record<string, unknown> | undefined;
         const data = event?.data as Record<string, unknown> | undefined;
         return event?.type === "reaction.triggered" && data?.reactionKey === "all-complete";
-      },
-    );
+      });
     expect(allCompleteNotifications).toHaveLength(0);
 
     lm.stop();
@@ -2666,7 +2928,12 @@ describe("rate limiting optimizations", () => {
               mergeable: false,
               hasConflicts: false,
               ciChecks: [
-                { name: "lint", status: "failed" as const, conclusion: "FAILURE", url: "https://example.com/lint" },
+                {
+                  name: "lint",
+                  status: "failed" as const,
+                  conclusion: "FAILURE",
+                  url: "https://example.com/lint",
+                },
                 { name: "test", status: "passed" as const, conclusion: "SUCCESS" },
               ],
             },
@@ -2688,13 +2955,8 @@ describe("rate limiting optimizations", () => {
 
     const lm = createLifecycleManager({ config, registry, sessionManager: mockSessionManager });
     lm.start(60_000);
-    // First poll: transitions to ci_failed, sends reaction message
+    // First poll: transitions to ci_failed and sends the enriched reaction message.
     await vi.advanceTimersByTimeAsync(0);
-
-    vi.mocked(mockSessionManager.send).mockClear();
-
-    // Second poll: dispatches detailed CI failure info
-    await vi.advanceTimersByTimeAsync(60_000);
 
     // getCIChecks() should NOT be called — batch enrichment has ciChecks
     expect(getCIChecksMock).not.toHaveBeenCalled();
@@ -2719,19 +2981,22 @@ describe("rate limiting optimizations", () => {
       },
     };
 
-    const getReviewThreadsMock = vi.fn().mockResolvedValue({ threads: [
-      {
-        id: "c1",
-        author: "reviewer",
-        body: "Please fix this",
-        path: "src/index.ts",
-        line: 10,
-        isResolved: false,
-        createdAt: new Date(),
-        url: "https://example.com/comment/1",
-        isBot: false,
-      },
-    ], reviews: [] });
+    const getReviewThreadsMock = vi.fn().mockResolvedValue({
+      threads: [
+        {
+          id: "c1",
+          author: "reviewer",
+          body: "Please fix this",
+          path: "src/index.ts",
+          line: 10,
+          isResolved: false,
+          createdAt: new Date(),
+          url: "https://example.com/comment/1",
+          isBot: false,
+        },
+      ],
+      reviews: [],
+    });
     const mockSCM = createMockSCM({
       getReviewThreads: getReviewThreadsMock,
     });

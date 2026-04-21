@@ -238,7 +238,10 @@ export interface RegistryPlugins {
   notifier?: Notifier;
 }
 
-export function createMockRegistry(plugins: RegistryPlugins, options: { strict?: boolean } = {}): PluginRegistry {
+export function createMockRegistry(
+  plugins: RegistryPlugins,
+  options: { strict?: boolean } = {},
+): PluginRegistry {
   return {
     register: vi.fn(),
     get: vi.fn().mockImplementation((slot: string, name?: string) => {
@@ -263,8 +266,6 @@ export function createMockRegistry(plugins: RegistryPlugins, options: { strict?:
         if (!name || name === plugins.notifier.name) return plugins.notifier;
         if (!options.strict) return plugins.notifier;
       }
-
-
 
       return null;
     }),
@@ -377,7 +378,11 @@ export function setupTestContext(): TestContext {
   const storageKey = createHash("sha256").update(join(tmpDir, "my-app")).digest("hex").slice(0, 12);
 
   const { runtime: mockRuntime, agent: mockAgent, workspace: mockWorkspace } = createMockPlugins();
-  const mockRegistry = createMockRegistry({ runtime: mockRuntime, agent: mockAgent, workspace: mockWorkspace });
+  const mockRegistry = createMockRegistry({
+    runtime: mockRuntime,
+    agent: mockAgent,
+    workspace: mockWorkspace,
+  });
 
   const config: OrchestratorConfig = {
     configPath,
@@ -451,8 +456,16 @@ export function teardownTestContext(ctx: TestContext): void {
 export function createMockSessionManager(): OpenCodeSessionManager {
   return {
     spawn: vi.fn().mockResolvedValue(makeSession()),
-    spawnOrchestrator: vi.fn().mockResolvedValue(makeSession({ id: "app-orchestrator", metadata: { role: "orchestrator" } })),
-    ensureOrchestrator: vi.fn().mockResolvedValue(makeSession({ id: "app-orchestrator", metadata: { role: "orchestrator" } })),
+    spawnOrchestrator: vi
+      .fn()
+      .mockResolvedValue(
+        makeSession({ id: "app-orchestrator", metadata: { role: "orchestrator" } }),
+      ),
+    ensureOrchestrator: vi
+      .fn()
+      .mockResolvedValue(
+        makeSession({ id: "app-orchestrator", metadata: { role: "orchestrator" } }),
+      ),
     restore: vi.fn().mockResolvedValue(makeSession()),
     list: vi.fn().mockResolvedValue([]),
     listCached: vi.fn().mockResolvedValue([]),
