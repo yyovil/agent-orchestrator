@@ -297,6 +297,10 @@ function sanitizeSuggestionText(text: string): string {
   return text.replace(/[\r\n\t]+/g, " ").trim();
 }
 
+function sanitizeSuggestionDescription(text: string): string {
+  return text.replace(/[\r\n]+/g, " ").trim();
+}
+
 function sortSuggestions(items: CompletionSuggestion[]): CompletionSuggestion[] {
   return [...items].sort((left, right) => left.value.localeCompare(right.value));
 }
@@ -394,7 +398,7 @@ export function formatCompletionSuggestions(items: readonly CompletionSuggestion
   return items
     .map((item) => {
       const value = sanitizeSuggestionText(item.value);
-      const description = item.description ? sanitizeSuggestionText(item.description) : "";
+      const description = item.description ? sanitizeSuggestionDescription(item.description) : "";
       return description ? `${value}\t${description}` : value;
     })
     .join("\n");
