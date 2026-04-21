@@ -23,6 +23,7 @@ vi.mock("../../src/lib/create-session-manager.js", () => ({
 }));
 
 import { registerCompletion } from "../../src/commands/completion.js";
+import { formatCompletionSuggestions, getCompletionSuggestions } from "../../src/lib/completion.js";
 
 function makeSession(
   id: string,
@@ -168,5 +169,45 @@ describe("completion commands", () => {
     expect(output).toContain("app-1\tapp [working]");
     expect(output).toContain("app-2\tapp [done]");
     expect(output).toContain("app-orchestrator\tapp [working]");
+  });
+
+  it("returns no suggestions for an unknown completion kind", async () => {
+    await program.parseAsync(["node", "test", "__complete", "unsupported"]);
+
+    const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(output).toBe("");
+  });
+
+  it("returns empty project suggestions when config loading fails", async () => {
+    mockConfigRef.current = null as any;
+
+    await program.parseAsync(["node", "test", "__complete", "projects"]);
+
+    const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(output).toBe("");
+  });
+
+  it("returns empty session suggestions when config loading fails", async () => {
+    mockConfigRef.current = null as any;
+
+    await program.parseAsync(["node", "test", "__complete", "sessions"]);
+
+    const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(output).toBe("");
+  });
+
+  it("sanitizes completion output values and descriptions", () => {
+    const formatted = formatCompletionSuggestions([
+      { value: "a\tvalue", description: "has:\tweird\nchars" },
+      { value: "plain", description: undefined },
+    ]);
+
+    expect(formatted).toContain("a value\thas:\tweird chars");
+    expect(formatted).toContain("plain");
+  });
+
+  it("returns no suggestions for unknown helper kind", async () => {
+    const items = await getCompletionSuggestions("mystery");
+    expect(items).toEqual([]);
   });
 });

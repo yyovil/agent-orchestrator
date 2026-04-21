@@ -41,6 +41,7 @@ const REPORT_STATE_SUGGESTIONS: readonly CompletionSuggestion[] = [
   { value: "completed", description: "Finished non-PR work" },
 ] as const;
 
+// Keep in sync with core plugin slot names.
 const PLUGIN_SLOT_SUGGESTIONS: readonly CompletionSuggestion[] = [
   { value: "runtime", description: "Execution runtime plugins" },
   { value: "agent", description: "Worker/orchestrator agent plugins" },
@@ -51,9 +52,11 @@ const PLUGIN_SLOT_SUGGESTIONS: readonly CompletionSuggestion[] = [
   { value: "terminal", description: "Terminal attachment plugins" },
 ] as const;
 
+const HIDDEN_COMMAND_NAMES = new Set<string>(["__complete"]);
+
 function isHiddenCommand(command: Command): boolean {
-  const maybeHidden = command as Command & { _hidden?: boolean };
-  return maybeHidden._hidden === true;
+  const commandName = command.name();
+  return commandName.startsWith("__") || HIDDEN_COMMAND_NAMES.has(commandName);
 }
 
 function buildCommandTree(command: Command, path: string[]): CompletionCommandNode {
@@ -257,12 +260,12 @@ function renderCommandFunction(node: CompletionCommandNode): string[] {
     lines.push("  local -a shifted_words");
     lines.push(`  shifted_words=("\${(@)words[${shiftCount + 1},-1]}")`);
     lines.push("  local -a words");
-    lines.push('  words=("' + "$" + '{shifted_words[@]}")');
+    lines.push('  words=("${shifted_words[@]}")');
     lines.push(`  local CURRENT=$(( CURRENT - ${shiftCount} ))`);
   }
 
   if (node.children.length > 0) {
-    lines.push('  local subcommand_name="' + "$" + '{words[2]-}"');
+    lines.push('  local subcommand_name="${words[2]-}"');
     lines.push("  case \"$subcommand_name\" in");
     for (const child of node.children) {
       const childName = child.path[child.path.length - 1];
@@ -408,7 +411,7 @@ function formatReportedStateSuggestions(): CompletionSuggestion[] {
 
   return AGENT_REPORTED_STATES.map((state) => ({
     value: state.replace(/_/g, "-"),
-    description: canonicalDescriptions.get(state),
+    description: canonicalDescriptions.get(state) ?? "Report state",
   }));
 }
 
