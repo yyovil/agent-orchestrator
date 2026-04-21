@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMediaQuery, MOBILE_BREAKPOINT } from "@/hooks/useMediaQuery";
 import {
   type DashboardSession,
@@ -9,13 +9,17 @@ import {
   TERMINAL_STATUSES,
   NON_RESTORABLE_STATUSES,
   isPRMergeReady,
+  isPRRateLimited,
+  isPRUnenriched,
 } from "@/lib/types";
 import { CI_STATUS } from "@aoagents/ao-core/types";
 import { cn } from "@/lib/cn";
 import dynamic from "next/dynamic";
 import { getSessionTitle } from "@/lib/format";
+import { buildGitHubCompareUrl } from "@/lib/github-links";
 import type { ProjectInfo } from "@/lib/project-name";
 import { SidebarContext } from "./workspace/SidebarContext";
+import { projectDashboardPath, projectSessionPath } from "@/lib/routes";
 
 import { ProjectSidebar } from "./ProjectSidebar";
 import { MobileBottomNav } from "./MobileBottomNav";
@@ -372,6 +376,7 @@ export function SessionDetail({
   sidebarError = false,
   onRetrySidebar,
 }: SessionDetailProps) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const isMobile = useMediaQuery(MOBILE_BREAKPOINT);
   const startFullscreen = searchParams.get("fullscreen") === "true";
@@ -398,7 +403,7 @@ export function SessionDetail({
   const reloadCommand = opencodeSessionId
     ? `/exit\nopencode --session ${opencodeSessionId}\n`
     : undefined;
-  const dashboardHref = session.projectId ? `/?project=${encodeURIComponent(session.projectId)}` : "/";
+  const dashboardHref = session.projectId ? projectDashboardPath(session.projectId) : "/";
   const crumbHref = dashboardHref;
   const crumbLabel = "Dashboard";
 
@@ -406,11 +411,15 @@ export function SessionDetail({
     try {
       const res = await fetch(`/api/sessions/${encodeURIComponent(session.id)}/kill`, { method: "POST" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      window.location.reload();
+      if (projectOrchestratorId) {
+        router.push(projectSessionPath(session.projectId, projectOrchestratorId));
+        return;
+      }
+      router.push(dashboardHref);
     } catch (err) {
       console.error("Failed to kill session:", err);
     }
-  }, [session.id]);
+  }, [dashboardHref, projectOrchestratorId, router, session.id, session.projectId]);
 
   const handleRestore = useCallback(async () => {
     try {
@@ -449,10 +458,10 @@ export function SessionDetail({
   const showHeaderProjectLabel =
     headerProjectLabel.trim().toLowerCase() !== "agent orchestrator";
   const orchestratorHref = useMemo(() => {
-    if (isOrchestrator) return `/sessions/${encodeURIComponent(session.id)}`;
+    if (isOrchestrator) return projectSessionPath(session.projectId, session.id);
     if (!projectOrchestratorId) return null;
-    return `/sessions/${encodeURIComponent(projectOrchestratorId)}`;
-  }, [isOrchestrator, projectOrchestratorId, session.id]);
+    return projectSessionPath(session.projectId, projectOrchestratorId);
+  }, [isOrchestrator, projectOrchestratorId, session.id, session.projectId]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setShowTerminal(true));
@@ -724,11 +733,12 @@ function SessionDetailPRCard({ pr, sessionId, metadata }: { pr: DashboardPR; ses
   const [sendingComments, setSendingComments] = useState<Set<string>>(new Set());
   const [sentComments, setSentComments] = useState<Set<string>>(new Set());
   const [errorComments, setErrorComments] = useState<Set<string>>(new Set());
-  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [branchCopied, setBranchCopied] = useState(false);
+  const timersRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     return () => {
-      timersRef.current.forEach((timer) => clearTimeout(timer));
+      timersRef.current.forEach((timer) => window.clearTimeout(timer));
       timersRef.current.clear();
     };
   }, []);
@@ -757,8 +767,8 @@ function SessionDetailPRCard({ pr, sessionId, metadata }: { pr: DashboardPR; ses
         });
         setSentComments((prev) => new Set(prev).add(comment.url));
         const existing = timersRef.current.get(comment.url);
-        if (existing) clearTimeout(existing);
-        const timer = setTimeout(() => {
+        if (existing !== undefined) window.clearTimeout(existing);
+        const timer = window.setTimeout(() => {
           setSentComments((prev) => {
             const next = new Set(prev);
             next.delete(comment.url);
@@ -776,8 +786,8 @@ function SessionDetailPRCard({ pr, sessionId, metadata }: { pr: DashboardPR; ses
         });
         setErrorComments((prev) => new Set(prev).add(comment.url));
         const existing = timersRef.current.get(comment.url);
-        if (existing) clearTimeout(existing);
-        const timer = setTimeout(() => {
+        if (existing !== undefined) window.clearTimeout(existing);
+        const timer = window.setTimeout(() => {
           setErrorComments((prev) => {
             const next = new Set(prev);
             next.delete(comment.url);
@@ -793,6 +803,32 @@ function SessionDetailPRCard({ pr, sessionId, metadata }: { pr: DashboardPR; ses
   const allGreen = isPRMergeReady(pr);
   const blockerIssues = buildBlockerChips(pr, metadata);
   const fileCount = pr.changedFiles ?? 0;
+
+  const mergeabilityReliable = !isPRUnenriched(pr) && !isPRRateLimited(pr);
+  const hasConflicts = mergeabilityReliable && pr.state !== "merged" && !pr.mergeability.noConflicts;
+  const showConflictActions = hasConflicts && pr.state === "open";
+  const compareUrl = showConflictActions ? buildGitHubCompareUrl(pr) : "";
+
+  const handleCopyBranch = () => {
+    const clipboardWrite = navigator.clipboard?.writeText(pr.branch);
+    if (!clipboardWrite) return;
+
+    void clipboardWrite
+      .then(() => {
+        setBranchCopied(true);
+        const timerKey = "__copy-branch";
+        const existing = timersRef.current.get(timerKey);
+        if (existing !== undefined) window.clearTimeout(existing);
+        const timer = window.setTimeout(() => {
+          setBranchCopied(false);
+          timersRef.current.delete(timerKey);
+        }, 2000);
+        timersRef.current.set(timerKey, timer);
+      })
+      .catch(() => {
+        /* clipboard unavailable */
+      });
+  };
 
   return (
     <div className={cn("session-detail-pr-card", allGreen && "session-detail-pr-card--green")}>
@@ -822,6 +858,31 @@ function SessionDetailPRCard({ pr, sessionId, metadata }: { pr: DashboardPR; ses
           <span className="session-detail-pr-card__diff-label">Merged</span>
         )}
       </div>
+
+      {showConflictActions ? (
+        <div
+          className="session-detail-pr-card__merge-actions"
+          role="group"
+          aria-label="Resolve merge conflicts"
+        >
+          <a
+            href={compareUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="session-detail-pr-merge-action"
+          >
+            Compare with base branch
+          </a>
+          <button
+            type="button"
+            onClick={handleCopyBranch}
+            aria-label={branchCopied ? "Head branch name copied" : "Copy head branch name"}
+            className="session-detail-pr-merge-action session-detail-pr-merge-action--btn"
+          >
+            {branchCopied ? "Copied branch name" : "Copy head branch name"}
+          </button>
+        </div>
+      ) : null}
 
       {/* Row 2: Blocker chips + CI chips inline */}
       <div className="session-detail-pr-card__details">
@@ -995,7 +1056,8 @@ function buildBlockerChips(pr: DashboardPR, metadata: Record<string, string>): B
   const ciIsFailing = pr.ciStatus === CI_STATUS.FAILING || lifecycleStatus === "ci_failed";
   const hasChangesRequested =
     pr.reviewDecision === "changes_requested" || lifecycleStatus === "changes_requested";
-  const hasConflicts = pr.state !== "merged" && !pr.mergeability.noConflicts;
+  const mergeabilityReliable = !isPRUnenriched(pr) && !isPRRateLimited(pr);
+  const hasConflicts = mergeabilityReliable && pr.state !== "merged" && !pr.mergeability.noConflicts;
 
   if (ciIsFailing) {
     const failCount = pr.ciChecks.filter((c) => c.status === "failed").length;
