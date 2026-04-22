@@ -25,7 +25,7 @@ vi.mock("../DirectTerminal", () => ({
     appearance,
   }: {
     sessionId: string;
-    appearance?: string;
+    appearance?: "theme" | "dark";
   }) => (
     <div
       data-testid="direct-terminal"
@@ -57,11 +57,11 @@ describe("SessionDetail desktop layout", () => {
     routerPushMock.mockReset();
     routerReplaceMock.mockReset();
     routerRefreshMock.mockReset();
-    window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
       callback(0);
       return 1;
-    });
-    window.cancelAnimationFrame = vi.fn();
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
     global.fetch = vi.fn(() =>
       Promise.resolve({
         ok: true,
@@ -73,6 +73,7 @@ describe("SessionDetail desktop layout", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("renders the desktop shell, PR blockers, and unresolved comments", () => {

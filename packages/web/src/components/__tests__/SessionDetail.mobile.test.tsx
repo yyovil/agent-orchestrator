@@ -1,7 +1,7 @@
 "use client";
 
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionDetail } from "../SessionDetail";
 import { makePR, makeSession } from "../../__tests__/helpers";
 
@@ -17,7 +17,7 @@ vi.mock("../DirectTerminal", () => ({
     appearance,
   }: {
     sessionId: string;
-    appearance?: string;
+    appearance?: "theme" | "dark";
   }) => (
     <div
       data-testid="direct-terminal"
@@ -46,11 +46,15 @@ function mockMobileViewport() {
 describe("SessionDetail unified layout (mobile viewport)", () => {
   beforeEach(() => {
     mockMobileViewport();
-    window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => {
       callback(0);
       return 1;
-    });
-    window.cancelAnimationFrame = vi.fn();
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("shows hamburger toggle button in topbar on mobile", () => {
