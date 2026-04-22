@@ -62,13 +62,13 @@ describe("SessionDetail desktop layout", () => {
       return 1;
     }));
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
-    global.fetch = vi.fn(() =>
+    vi.stubGlobal("fetch", vi.fn(() =>
       Promise.resolve({
         ok: true,
         status: 200,
         text: () => Promise.resolve(""),
       } as Response),
-    );
+    ));
   });
 
   afterEach(() => {
