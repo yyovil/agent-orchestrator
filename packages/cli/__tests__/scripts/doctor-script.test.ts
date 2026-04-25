@@ -125,12 +125,13 @@ describe("ao-doctor.sh", () => {
     expect(result.stdout).toContain("Environment looks healthy");
   });
 
-  it("applies safe fixes for missing launcher, missing dirs, and stale temp files", () => {
+  it("applies safe fixes for missing launcher, missing dirs, and stale temp files when grep output is colored", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "ao-doctor-fix-"));
     const fakeRepo = createHealthyRepo(tempRoot);
     const binDir = join(tempRoot, "bin");
     mkdirSync(binDir, { recursive: true });
     createHealthyPath(binDir);
+    createFakeBinary(binDir, "grep", 'exec /usr/bin/grep --color=always "$@"');
     rmSync(join(binDir, "ao"), { force: true });
 
     const npmLog = join(tempRoot, "npm.log");

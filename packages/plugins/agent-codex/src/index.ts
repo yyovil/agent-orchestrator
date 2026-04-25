@@ -4,13 +4,10 @@ import {
   shellEscape,
   readLastJsonlEntry,
   normalizeAgentPermissionMode,
-  buildAgentPath,
-  setupPathWrapperWorkspace,
   readLastActivityEntry,
   checkActivityLogState,
   getActivityFallbackState,
   recordTerminalActivity,
-  PREFERRED_GH_PATH,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -185,10 +182,7 @@ async function readJsonlPrefixLines(filePath: string, maxLines: number): Promise
  * session_meta entry matching the given workspace path. This avoids parsing a
  * truncated session_meta line when Codex embeds large base_instructions.
  */
-async function sessionFileMatchesCwd(
-  filePath: string,
-  workspacePath: string,
-): Promise<boolean> {
+async function sessionFileMatchesCwd(filePath: string, workspacePath: string): Promise<boolean> {
   try {
     const lines = await readJsonlPrefixLines(filePath, SESSION_MATCH_SCAN_LINE_LIMIT);
     for (const line of lines) {
@@ -245,6 +239,8 @@ interface CodexSessionData {
   threadId: string | null;
   inputTokens: number;
   outputTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
 }
 
 /**
@@ -254,7 +250,14 @@ interface CodexSessionData {
  */
 async function streamCodexSessionData(filePath: string): Promise<CodexSessionData | null> {
   try {
-    const data: CodexSessionData = { model: null, threadId: null, inputTokens: 0, outputTokens: 0 };
+    const data: CodexSessionData = {
+      model: null,
+      threadId: null,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+    };
     const rl = createInterface({
       input: createReadStream(filePath, { encoding: "utf-8" }),
       crlfDelay: Infinity,
@@ -319,6 +322,8 @@ async function streamCodexSessionData(filePath: string): Promise<CodexSessionDat
         if (entry.type === "event_msg" && entry.msg?.type === "token_count") {
           data.inputTokens += entry.msg.input_tokens ?? 0;
           data.outputTokens += entry.msg.output_tokens ?? 0;
+          data.cachedTokens += entry.msg.cached_tokens ?? 0;
+          data.reasoningTokens += entry.msg.reasoning_tokens ?? 0;
         }
       } catch {
         // Skip malformed lines
@@ -377,10 +382,18 @@ export async function resolveCodexBinary(): Promise<string> {
 // =============================================================================
 
 /** Append approval-policy flags to a command parts array */
-function appendApprovalFlags(parts: string[], permissions: string | undefined): void {
+function appendApprovalFlags(
+  parts: string[],
+  permissions: string | undefined,
+  allowDangerousBypass = true,
+): void {
   const mode = normalizeAgentPermissionMode(permissions);
   if (mode === "permissionless") {
-    parts.push("--dangerously-bypass-approvals-and-sandbox");
+    if (allowDangerousBypass) {
+      parts.push("--dangerously-bypass-approvals-and-sandbox");
+    } else {
+      parts.push("--ask-for-approval", "never");
+    }
   } else if (mode === "auto-edit") {
     parts.push("--ask-for-approval", "never");
   } else if (mode === "suggest") {
@@ -421,7 +434,10 @@ async function findCodexSessionFileCached(workspacePath: string): Promise<string
     return cached.path;
   }
   const result = await findCodexSessionFile(workspacePath);
-  sessionFileCache.set(workspacePath, { path: result, expiry: Date.now() + SESSION_FILE_CACHE_TTL_MS });
+  sessionFileCache.set(workspacePath, {
+    path: result,
+    expiry: Date.now() + SESSION_FILE_CACHE_TTL_MS,
+  });
   return result;
 }
 
@@ -468,11 +484,7 @@ function createCodexAgent(): Agent {
         env["AO_ISSUE_ID"] = config.issueId;
       }
 
-      // Prepend ~/.ao/bin to PATH so our gh/git wrappers intercept commands.
-      // The wrappers strip this directory from PATH before calling the real
-      // binary, so there's no infinite recursion.
-      env["PATH"] = buildAgentPath(process.env["PATH"]);
-      env["GH_PATH"] = PREFERRED_GH_PATH;
+      // PATH and GH_PATH are injected by session-manager for all agents.
       // Disable Codex's version check/update prompt for non-interactive AO sessions.
       env["CODEX_DISABLE_UPDATE_CHECK"] = "1";
 
@@ -498,7 +510,10 @@ function createCodexAgent(): Agent {
       return "active";
     },
 
-    async getActivityState(session: Session, readyThresholdMs?: number): Promise<ActivityDetection | null> {
+    async getActivityState(
+      session: Session,
+      readyThresholdMs?: number,
+    ): Promise<ActivityDetection | null> {
       const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
 
       // Check if process is running first
@@ -670,15 +685,19 @@ function createCodexAgent(): Agent {
 
       const agentSessionId = basename(sessionFile, ".jsonl");
 
-      const cost: CostEstimate | undefined =
-        data.inputTokens === 0 && data.outputTokens === 0
-          ? undefined
-          : {
-              inputTokens: data.inputTokens,
-              outputTokens: data.outputTokens,
-              estimatedCostUsd:
-                (data.inputTokens / 1_000_000) * 2.5 + (data.outputTokens / 1_000_000) * 10.0,
-            };
+      let cost: CostEstimate | undefined;
+      const totalInputTokens = data.inputTokens + data.cachedTokens;
+      if (totalInputTokens > 0 || data.outputTokens > 0 || data.reasoningTokens > 0) {
+        const estimatedCostUsd =
+          (data.inputTokens / 1_000_000) * 2.5 +
+          (data.cachedTokens / 1_000_000) * 0.625 +
+          ((data.outputTokens + data.reasoningTokens) / 1_000_000) * 10.0;
+        cost = {
+          inputTokens: totalInputTokens,
+          outputTokens: data.outputTokens,
+          estimatedCostUsd,
+        };
+      }
 
       return {
         summary: data.model ? `Codex session (${data.model})` : null,
@@ -717,11 +736,11 @@ function createCodexAgent(): Agent {
       return parts.join(" ");
     },
 
-    async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
-      await setupPathWrapperWorkspace(workspacePath);
+    async setupWorkspaceHooks(_workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
+      // PATH wrappers are installed by session-manager for all agents.
     },
 
-    async postLaunchSetup(session: Session): Promise<void> {
+    async postLaunchSetup(_session: Session): Promise<void> {
       // Resolve binary path on first launch (cached for subsequent calls).
       // Uses a promise guard to prevent concurrent calls from racing.
       if (!resolvedBinary) {
@@ -734,8 +753,7 @@ function createCodexAgent(): Agent {
           resolvingBinary = null;
         }
       }
-      if (!session.workspacePath) return;
-      await setupPathWrapperWorkspace(session.workspacePath);
+      // PATH wrappers are re-ensured by session-manager.
     },
   };
 }
