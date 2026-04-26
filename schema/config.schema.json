@@ -141,11 +141,7 @@
           "description": "Local path for an external tracker plugin."
         }
       },
-      "anyOf": [
-        { "required": ["plugin"] },
-        { "required": ["package"] },
-        { "required": ["path"] }
-      ],
+      "anyOf": [{ "required": ["plugin"] }, { "required": ["package"] }, { "required": ["path"] }],
       "not": {
         "required": ["package", "path"]
       }
@@ -199,11 +195,7 @@
           "$ref": "#/$defs/scmWebhookConfig"
         }
       },
-      "anyOf": [
-        { "required": ["plugin"] },
-        { "required": ["package"] },
-        { "required": ["path"] }
-      ],
+      "anyOf": [{ "required": ["plugin"] }, { "required": ["package"] }, { "required": ["path"] }],
       "not": {
         "required": ["package", "path"]
       }
@@ -225,11 +217,7 @@
           "description": "Local path for an external notifier plugin."
         }
       },
-      "anyOf": [
-        { "required": ["plugin"] },
-        { "required": ["package"] },
-        { "required": ["path"] }
-      ],
+      "anyOf": [{ "required": ["plugin"] }, { "required": ["package"] }, { "required": ["path"] }],
       "not": {
         "required": ["package", "path"]
       }
@@ -317,6 +305,16 @@
         "sessionPrefix": {
           "type": "string",
           "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "storageKey": {
+          "type": "string"
+        },
+        "originUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "resolveError": {
+          "type": "string"
         },
         "runtime": {
           "type": "string"

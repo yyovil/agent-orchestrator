@@ -10,6 +10,8 @@ import { join, resolve } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { generateSessionPrefix } from "./paths.js";
 
+// Main is the canonical config-schema contract; schema evolution must remain
+// forward-compatible and additive for older CLIs that stamp this URL.
 export const CONFIG_SCHEMA_URL =
   "https://raw.githubusercontent.com/ComposioHQ/agent-orchestrator/main/schema/config.schema.json";
 
@@ -322,7 +324,10 @@ export function isRepoAlreadyCloned(dir: string, expectedCloneUrl: string): bool
     if (sshMatch) {
       normalized = `https://${sshMatch[1]}/${sshMatch[2]}`;
     }
-    return normalized.replace(/\.git$/, "").replace(/\/$/, "").toLowerCase();
+    return normalized
+      .replace(/\.git$/, "")
+      .replace(/\/$/, "")
+      .toLowerCase();
   };
 
   const expectedNorm = normalize(expectedCloneUrl);

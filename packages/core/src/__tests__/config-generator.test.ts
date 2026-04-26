@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -29,13 +29,13 @@ describe("withConfigSchema", () => {
   });
 
   it("treats blank and whitespace schema values as missing", () => {
-    expect(withConfigSchema({ "$schema": "" }).$schema).toBe(CONFIG_SCHEMA_URL);
-    expect(withConfigSchema({ "$schema": "   " }).$schema).toBe(CONFIG_SCHEMA_URL);
+    expect(withConfigSchema({ $schema: "" }).$schema).toBe(CONFIG_SCHEMA_URL);
+    expect(withConfigSchema({ $schema: "   " }).$schema).toBe(CONFIG_SCHEMA_URL);
   });
 
   it("preserves non-empty schema values", () => {
     const custom = "https://example.com/schema.json";
-    const config = withConfigSchema({ "$schema": custom });
+    const config = withConfigSchema({ $schema: custom });
     expect(config.$schema).toBe(custom);
   });
 });
@@ -115,9 +115,7 @@ describe("parseRepoUrl", () => {
 
   it("throws on invalid URL", () => {
     expect(() => parseRepoUrl("not-a-url")).toThrow("Could not parse repo URL");
-    expect(() => parseRepoUrl("https://github.com/just-owner")).toThrow(
-      "Could not parse repo URL",
-    );
+    expect(() => parseRepoUrl("https://github.com/just-owner")).toThrow("Could not parse repo URL");
   });
 });
 
@@ -423,6 +421,29 @@ describe("configToYaml", () => {
     );
     expect(yaml).toContain("port: 3000");
     expect(yaml).toContain("name: App");
+  });
+});
+
+describe("config schema", () => {
+  it("documents runtime-populated project identity fields", () => {
+    const schema = JSON.parse(
+      readFileSync(new URL("../../../../schema/config.schema.json", import.meta.url), "utf-8"),
+    ) as {
+      $defs: {
+        projectConfig: {
+          properties: Record<string, { type?: string; format?: string }>;
+        };
+      };
+    };
+
+    expect(schema.$defs.projectConfig.properties["storageKey"]).toMatchObject({ type: "string" });
+    expect(schema.$defs.projectConfig.properties["originUrl"]).toMatchObject({
+      type: "string",
+      format: "uri",
+    });
+    expect(schema.$defs.projectConfig.properties["resolveError"]).toMatchObject({
+      type: "string",
+    });
   });
 });
 
