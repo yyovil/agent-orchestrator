@@ -398,7 +398,6 @@ export default function SessionPage() {
     error: sidebarQueryError,
     isError: sidebarQueryIsError,
     isPending: sidebarQueryIsPending,
-    isRefetchError: sidebarQueryIsRefetchError,
     refetch: refetchSidebarSessionsQuery,
   } = useQuery<DashboardSession[], Error>({
     queryKey: SIDEBAR_SESSIONS_QUERY_KEY,
@@ -427,7 +426,7 @@ export default function SessionPage() {
   });
 
   const sidebarSessions = queriedSidebarSessions ?? (sidebarQueryIsError ? [] : null);
-  const sidebarError = sidebarQueryIsError || sidebarQueryIsRefetchError;
+  const sidebarError = sidebarQueryIsError;
   const sidebarErrorMessage = sidebarQueryError?.message;
   const sidebarLoading = sidebarQueryIsPending;
   const refetchSidebarSessions = useCallback(async (): Promise<void> => {
