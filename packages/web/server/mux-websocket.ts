@@ -8,11 +8,13 @@
 
 import { WebSocketServer, WebSocket } from "ws";
 import { spawn } from "node:child_process";
+import { mkdirSync, watch, type FSWatcher } from "node:fs";
 import { type Socket, connect as netConnect } from "node:net";
 import {
   DEFAULT_DASHBOARD_NOTIFICATION_LIMIT,
   getEnvDefaults,
   getDashboardNotificationStorePath,
+  getProjectSessionsDir,
   isWindows,
   loadConfig,
   normalizeDashboardNotificationLimit,
@@ -70,6 +72,13 @@ interface SessionPatch {
   lastActivityAt: string;
 }
 
+interface SessionBroadcasterOptions {
+  metadataSessionDirs?: string[];
+  watch?: typeof watch;
+  mkdir?: typeof mkdirSync;
+  watchDebounceMs?: number;
+}
+
 /**
  * Manages polling of session patches from Next.js /api/sessions/patches.
  * Broadcasts to all subscribed callbacks.
@@ -83,15 +92,25 @@ export class SessionBroadcaster {
   // Tracks the last fetch outcome so we only emit ui.session_broadcast_failed on
   // the healthy → failing transition (not every 3s during an outage).
   private lastFetchOk = true;
+  private metadataWatchers: FSWatcher[] = [];
+  private metadataRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly baseUrl: string;
+  private readonly metadataSessionDirs?: string[];
+  private readonly watchImpl: typeof watch;
+  private readonly mkdirImpl: typeof mkdirSync;
+  private readonly watchDebounceMs: number;
 
-  constructor(nextPort: string) {
+  constructor(nextPort: string, options: SessionBroadcasterOptions = {}) {
     this.baseUrl = `http://localhost:${nextPort}`;
+    this.metadataSessionDirs = options.metadataSessionDirs;
+    this.watchImpl = options.watch ?? watch;
+    this.mkdirImpl = options.mkdir ?? mkdirSync;
+    this.watchDebounceMs = options.watchDebounceMs ?? 100;
   }
 
   /**
    * Subscribe to session patches and errors. Returns an unsubscribe function.
-   * Sends an immediate snapshot to the new subscriber, then polling updates.
+   * Sends an immediate snapshot to the new subscriber, then polling/watcher updates.
    */
   subscribe(
     callback: (sessions: SessionPatch[]) => void,
@@ -118,8 +137,9 @@ export class SessionBroadcaster {
       }
     });
 
-    // Start polling if this is the first subscriber
+    // Start polling and metadata watchers if this is the first subscriber
     if (wasEmpty) {
+      this.startMetadataWatchers();
       this.intervalId = setInterval(() => {
         if (this.polling) return;
         this.polling = true;
@@ -139,6 +159,7 @@ export class SessionBroadcaster {
       if (onError) this.errorSubscribers.delete(onError);
       if (this.subscribers.size === 0) {
         this.disconnect();
+        this.stopMetadataWatchers();
       }
     };
   }
@@ -160,6 +181,72 @@ export class SessionBroadcaster {
       } catch (err) {
         console.error("[MuxServer] Session error subscriber threw:", err);
       }
+    }
+  }
+
+  private discoverMetadataSessionDirs(): string[] {
+    if (this.metadataSessionDirs) return this.metadataSessionDirs;
+
+    const configPath = process.env["AO_CONFIG_PATH"];
+    if (!configPath) return [];
+
+    try {
+      const config = loadConfig(configPath);
+      return Object.keys(config.projects).map((projectId) => getProjectSessionsDir(projectId));
+    } catch (err) {
+      console.warn(
+        "[MuxServer] Could not initialize session metadata watcher:",
+        err instanceof Error ? err.message : err,
+      );
+      return [];
+    }
+  }
+
+  private startMetadataWatchers(): void {
+    if (this.metadataWatchers.length > 0) return;
+
+    for (const sessionsDir of this.discoverMetadataSessionDirs()) {
+      try {
+        this.mkdirImpl(sessionsDir, { recursive: true });
+        const watcher = this.watchImpl(
+          sessionsDir,
+          { persistent: false },
+          (_eventType, filename) => {
+            if (filename && !String(filename).endsWith(".json")) return;
+            this.scheduleMetadataRefresh();
+          },
+        );
+        this.metadataWatchers.push(watcher);
+      } catch (err) {
+        console.warn(
+          "[MuxServer] Could not watch session metadata directory:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+  }
+
+  private scheduleMetadataRefresh(): void {
+    if (this.subscribers.size === 0 || this.metadataRefreshTimer) return;
+
+    this.metadataRefreshTimer = setTimeout(() => {
+      this.metadataRefreshTimer = null;
+      void this.fetchSnapshot().then((result) => {
+        if (this.subscribers.size === 0) return;
+        if (result.sessions) this.broadcast(result.sessions);
+        else if (result.error) this.broadcastError(result.error);
+      });
+    }, this.watchDebounceMs);
+  }
+
+  private stopMetadataWatchers(): void {
+    for (const watcher of this.metadataWatchers) {
+      watcher.close();
+    }
+    this.metadataWatchers = [];
+    if (this.metadataRefreshTimer) {
+      clearTimeout(this.metadataRefreshTimer);
+      this.metadataRefreshTimer = null;
     }
   }
 

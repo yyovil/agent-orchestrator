@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import type * as NodeFs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Socket } from "node:net";
@@ -114,17 +115,25 @@ function resetPtyMock(): void {
 
 describe("SessionBroadcaster", () => {
   let broadcaster: SessionBroadcasterType;
+  let originalAoConfigPath: string | undefined;
 
   beforeEach(() => {
     vi.useFakeTimers();
     mockFetch.mockReset();
     recordActivityEvent.mockClear();
     resetPtyMock();
+    originalAoConfigPath = process.env["AO_CONFIG_PATH"];
+    delete process.env["AO_CONFIG_PATH"];
     broadcaster = new SessionBroadcaster("3000");
   });
 
   afterEach(() => {
     vi.clearAllTimers();
+    if (originalAoConfigPath === undefined) {
+      delete process.env["AO_CONFIG_PATH"];
+    } else {
+      process.env["AO_CONFIG_PATH"] = originalAoConfigPath;
+    }
     vi.useRealTimers();
   });
 
@@ -258,6 +267,60 @@ describe("SessionBroadcaster", () => {
       // Should be called again from polling
       expect(cb1).toHaveBeenCalledTimes(2);
       expect(cb2).toHaveBeenCalledTimes(2);
+    });
+
+    it("broadcasts a fresh snapshot when watched session metadata changes", async () => {
+      const patches = [makePatch("s1")];
+      let watchCallback:
+        | ((eventType: string, filename: string | Buffer | null) => void)
+        | undefined;
+      const watcher = { close: vi.fn() } as unknown as NodeFs.FSWatcher;
+      const watchSpy = vi.fn((_path: string, _options: unknown, listener: unknown) => {
+        if (typeof listener !== "function") {
+          throw new TypeError("watch listener must be a function");
+        }
+        watchCallback = listener as (
+          eventType: string,
+          filename: string | Buffer | null,
+        ) => void;
+        return watcher;
+      });
+      const watchImpl = watchSpy as unknown as typeof NodeFs.watch;
+      const mkdirImpl = vi.fn((() => undefined) as typeof NodeFs.mkdirSync);
+      broadcaster = new SessionBroadcaster("3000", {
+        metadataSessionDirs: ["/tmp/ao-sessions"],
+        mkdir: mkdirImpl,
+        watch: watchImpl,
+        watchDebounceMs: 5,
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ sessions: [] }),
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ sessions: patches }),
+      });
+
+      const callback = vi.fn();
+      const unsubscribe = broadcaster.subscribe(callback);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(mkdirImpl).toHaveBeenCalledWith("/tmp/ao-sessions", { recursive: true });
+      expect(watchSpy).toHaveBeenCalledWith(
+        "/tmp/ao-sessions",
+        { persistent: false },
+        expect.any(Function),
+      );
+
+      watchCallback?.("rename", "s1.json");
+      await vi.advanceTimersByTimeAsync(5);
+
+      expect(callback).toHaveBeenLastCalledWith(patches);
+
+      unsubscribe();
+      expect(watcher.close).toHaveBeenCalled();
     });
 
     it("isolates subscriber errors — one throw does not skip others", async () => {
