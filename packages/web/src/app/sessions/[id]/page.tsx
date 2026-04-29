@@ -77,6 +77,7 @@ let cachedProjects: ProjectInfo[] | null = null;
 let cachedSidebarSessions: DashboardSession[] | null = null;
 const SIDEBAR_SESSIONS_QUERY_KEY = ["session-detail", "sidebar-sessions"] as const;
 const SESSION_PAGE_REFRESH_INTERVAL_MS = 2000;
+const SIDEBAR_SESSIONS_REFRESH_INTERVAL_MS = 1000;
 const SESSION_FETCH_TIMEOUT_MS = 8000;
 const PROJECT_SIDEBAR_FETCH_TIMEOUT_MS = 5000;
 const PROJECTS_FETCH_TIMEOUT_MS = 5000;
@@ -406,6 +407,7 @@ export default function SessionPage() {
         "/api/sessions?view=sidebar",
         {
           signal,
+          cache: "no-store",
           timeoutMs: PROJECT_SIDEBAR_FETCH_TIMEOUT_MS,
           timeoutMessage: `Sidebar sessions request timed out after ${PROJECT_SIDEBAR_FETCH_TIMEOUT_MS}ms`,
         },
@@ -417,10 +419,11 @@ export default function SessionPage() {
     },
     initialData: () => cachedSidebarSessions ?? undefined,
     initialDataUpdatedAt: 0,
-    refetchInterval: SESSION_PAGE_REFRESH_INTERVAL_MS,
+    refetchInterval: SIDEBAR_SESSIONS_REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: true,
     refetchOnWindowFocus: false,
     retry: false,
-    staleTime: SESSION_PAGE_REFRESH_INTERVAL_MS,
+    staleTime: SIDEBAR_SESSIONS_REFRESH_INTERVAL_MS,
   });
 
   const sidebarSessions = queriedSidebarSessions ?? (sidebarQueryIsError ? [] : null);
@@ -573,6 +576,7 @@ export default function SessionPage() {
         : `/api/sessions?project=${encodeURIComponent(projectId)}&orchestratorOnly=true&view=sidebar`;
       const body = await fetchJsonWithTimeout<ProjectSessionsBody>(query, {
         signal: controller.signal,
+        cache: "no-store",
         timeoutMs: PROJECT_SIDEBAR_FETCH_TIMEOUT_MS,
         timeoutMessage: `Project sessions request timed out after ${PROJECT_SIDEBAR_FETCH_TIMEOUT_MS}ms`,
       });
