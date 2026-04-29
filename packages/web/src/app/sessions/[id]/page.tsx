@@ -443,7 +443,6 @@ export default function SessionPage() {
     error: sidebarQueryError,
     isError: sidebarQueryIsError,
     isPending: sidebarQueryIsPending,
-    isRefetchError: sidebarQueryIsRefetchError,
     refetch: refetchSidebarSessionsQuery,
   } = useQuery<SidebarSessionsQueryData, Error>({
     queryKey: SIDEBAR_SESSIONS_QUERY_KEY,
@@ -474,7 +473,7 @@ export default function SessionPage() {
 
   const sidebarSessions = queriedSidebarData?.sessions ?? (sidebarQueryIsError ? [] : null);
   const sidebarOrchestrators = queriedSidebarData?.orchestrators;
-  const sidebarError = sidebarQueryIsError || sidebarQueryIsRefetchError;
+  const sidebarError = sidebarQueryIsError;
   const sidebarErrorMessage = sidebarQueryError?.message;
   const sidebarLoading = sidebarQueryIsPending;
   const refetchSidebarSessions = useCallback(async (): Promise<void> => {
