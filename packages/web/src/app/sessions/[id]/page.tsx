@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ACTIVITY_STATE, SESSION_STATUS, isOrchestratorSession } from "@aoagents/ao-core/types";
 import { SessionDetail } from "@/components/SessionDetail";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
@@ -74,6 +75,7 @@ interface ProjectSessionsBody {
 
 let cachedProjects: ProjectInfo[] | null = null;
 let cachedSidebarSessions: DashboardSession[] | null = null;
+const SIDEBAR_SESSIONS_QUERY_KEY = ["session-detail", "sidebar-sessions"] as const;
 const SESSION_PAGE_REFRESH_INTERVAL_MS = 2000;
 const SESSION_FETCH_TIMEOUT_MS = 8000;
 const PROJECT_SIDEBAR_FETCH_TIMEOUT_MS = 5000;
@@ -98,20 +100,6 @@ function areProjectsEqual(previous: ProjectInfo[] | null, next: ProjectInfo[]): 
   return previous.every((project, index) => {
     const candidate = next[index];
     return JSON.stringify(project) === JSON.stringify(candidate);
-  });
-}
-
-function areSidebarSessionsEqual(
-  previous: DashboardSession[] | null,
-  next: DashboardSession[],
-): boolean {
-  if (!previous || previous.length !== next.length) {
-    return false;
-  }
-
-  return previous.every((session, index) => {
-    const candidate = next[index];
-    return JSON.stringify(session) === JSON.stringify(candidate);
   });
 }
 
@@ -172,6 +160,7 @@ function SessionPageShell({
   sidebarSessions,
   sidebarLoading,
   sidebarError,
+  sidebarErrorMessage,
   onRetrySidebar,
   activeProjectId,
   activeSessionId,
@@ -182,6 +171,7 @@ function SessionPageShell({
   sidebarSessions: DashboardSession[] | null;
   sidebarLoading: boolean;
   sidebarError: boolean;
+  sidebarErrorMessage?: string;
   onRetrySidebar: () => void;
   activeProjectId?: string;
   activeSessionId?: string;
@@ -253,6 +243,7 @@ function SessionPageShell({
               sessions={sidebarSessions}
               loading={sidebarLoading}
               error={sidebarError}
+              errorMessage={sidebarErrorMessage}
               onRetry={onRetrySidebar}
               activeProjectId={activeProjectId}
               activeSessionId={activeSessionId}
@@ -377,13 +368,9 @@ export default function SessionPage() {
   );
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(cachedProjects === null);
-  const [sidebarSessions, setSidebarSessions] = useState<DashboardSession[] | null>(
-    () => cachedSidebarSessions,
-  );
   const [loading, setLoading] = useState(cachedSession === null);
   const [routeError, setRouteError] = useState<Error | null>(null);
   const [sessionMissing, setSessionMissing] = useState(false);
-  const [sidebarError, setSidebarError] = useState(false);
   const [prefixByProject, setPrefixByProject] = useState<Map<string, string>>(new Map());
   const sessionProjectId = session?.projectId ?? null;
   const allPrefixes = [...prefixByProject.values()];
@@ -396,19 +383,64 @@ export default function SessionPage() {
   const prefixByProjectRef = useRef<Map<string, string>>(new Map());
   const hasLoadedSessionRef = useRef(cachedSession !== null);
   const pendingMuxSessionsRef = useRef<SessionPatch[] | null>(null);
+  const sidebarSessionsRef = useRef<DashboardSession[] | null>(cachedSidebarSessions);
   // In-flight guards — prevent concurrent duplicate fetches
   const fetchingSessionRef = useRef(false);
   const fetchingProjectSessionsRef = useRef(false);
-  const fetchingSidebarRef = useRef(false);
   const sessionFetchControllerRef = useRef<AbortController | null>(null);
   const projectSessionsFetchControllerRef = useRef<AbortController | null>(null);
-  const sidebarFetchControllerRef = useRef<AbortController | null>(null);
   const pageUnloadingRef = useRef(false);
+  const queryClient = useQueryClient();
+
+  const {
+    data: queriedSidebarSessions,
+    error: sidebarQueryError,
+    isError: sidebarQueryIsError,
+    isPending: sidebarQueryIsPending,
+    isRefetchError: sidebarQueryIsRefetchError,
+    refetch: refetchSidebarSessionsQuery,
+  } = useQuery<DashboardSession[], Error>({
+    queryKey: SIDEBAR_SESSIONS_QUERY_KEY,
+    queryFn: async ({ signal }) => {
+      const body = await fetchJsonWithTimeout<{ sessions?: DashboardSession[] } | null>(
+        "/api/sessions?fresh=true",
+        {
+          signal,
+          timeoutMs: PROJECT_SIDEBAR_FETCH_TIMEOUT_MS,
+          timeoutMessage: `Sidebar sessions request timed out after ${PROJECT_SIDEBAR_FETCH_TIMEOUT_MS}ms`,
+        },
+      );
+      const restSessions = body?.sessions ?? [];
+      return (
+        applyMuxSessionPatches(restSessions, pendingMuxSessionsRef.current ?? []) ?? restSessions
+      );
+    },
+    initialData: () => cachedSidebarSessions ?? undefined,
+    initialDataUpdatedAt: 0,
+    refetchInterval: SESSION_PAGE_REFRESH_INTERVAL_MS,
+    refetchOnWindowFocus: false,
+    retry: false,
+    staleTime: SESSION_PAGE_REFRESH_INTERVAL_MS,
+  });
+
+  const sidebarSessions = queriedSidebarSessions ?? (sidebarQueryIsError ? [] : null);
+  const sidebarError = sidebarQueryIsError || sidebarQueryIsRefetchError;
+  const sidebarErrorMessage = sidebarQueryError?.message;
+  const sidebarLoading = sidebarQueryIsPending;
+  const refetchSidebarSessions = useCallback(async (): Promise<void> => {
+    await refetchSidebarSessionsQuery();
+  }, [refetchSidebarSessionsQuery]);
 
   // Keep prefixByProjectRef in sync so fetchProjectSessions (stable [] dep) reads latest map
   useEffect(() => {
     prefixByProjectRef.current = prefixByProject;
   }, [prefixByProject]);
+
+  useEffect(() => {
+    if (queriedSidebarSessions === undefined) return;
+    cachedSidebarSessions = queriedSidebarSessions;
+    sidebarSessionsRef.current = queriedSidebarSessions;
+  }, [queriedSidebarSessions]);
 
   // Fetch project prefix map once on mount so isOrchestratorSession can use the correct prefix
   const fetchProjects = useCallback(async () => {
@@ -590,43 +622,6 @@ export default function SessionPage() {
     }
   }, []);
 
-  const fetchSidebarSessions = useCallback(async () => {
-    if (fetchingSidebarRef.current) return;
-    fetchingSidebarRef.current = true;
-    const controller = new AbortController();
-    sidebarFetchControllerRef.current = controller;
-    try {
-      const body = await fetchJsonWithTimeout<{ sessions?: DashboardSession[] } | null>(
-        "/api/sessions?fresh=true",
-        {
-          signal: controller.signal,
-          timeoutMs: PROJECT_SIDEBAR_FETCH_TIMEOUT_MS,
-          timeoutMessage: `Sidebar sessions request timed out after ${PROJECT_SIDEBAR_FETCH_TIMEOUT_MS}ms`,
-        },
-      );
-      const restSessions = body?.sessions ?? [];
-      const nextSessions =
-        applyMuxSessionPatches(restSessions, pendingMuxSessionsRef.current ?? []) ?? restSessions;
-      cachedSidebarSessions = nextSessions;
-      setSidebarError(false);
-      setSidebarSessions((current) =>
-        areSidebarSessionsEqual(current, nextSessions) ? current : nextSessions,
-      );
-    } catch (err) {
-      if (pageUnloadingRef.current || controller.signal.aborted || isAbortLikeError(err)) {
-        return;
-      }
-      console.error("Failed to fetch sidebar sessions:", err);
-      setSidebarError(true);
-      setSidebarSessions((current) => (current === null ? [] : current));
-    } finally {
-      fetchingSidebarRef.current = false;
-      if (sidebarFetchControllerRef.current === controller) {
-        sidebarFetchControllerRef.current = null;
-      }
-    }
-  }, []);
-
   useEffect(() => {
     if (!mux?.sessions) return;
 
@@ -643,30 +638,33 @@ export default function SessionPage() {
     // Read current sessions via the module-level cache so this effect reacts to
     // new mux data only — keeping `sidebarSessions` out of the dep array avoids
     // re-running on every state change that the effect itself produces.
-    const next = applyMuxSessionPatches(cachedSidebarSessions, mux.sessions);
-    if (next !== cachedSidebarSessions) {
+    const currentSidebarSessions = sidebarSessionsRef.current;
+    const next = applyMuxSessionPatches(currentSidebarSessions, mux.sessions);
+    if (next !== currentSidebarSessions) {
       cachedSidebarSessions = next;
-      setSidebarSessions(next);
+      sidebarSessionsRef.current = next;
+      queryClient.setQueryData(SIDEBAR_SESSIONS_QUERY_KEY, next);
     }
 
-    if (mux.sessions.length === 0 || !cachedSidebarSessions) {
+    const latestSidebarSessions = sidebarSessionsRef.current;
+    if (mux.sessions.length === 0 || !latestSidebarSessions) {
       return;
     }
 
-    const cachedIds = new Set(cachedSidebarSessions.map((sidebarSession) => sidebarSession.id));
+    const cachedIds = new Set(latestSidebarSessions.map((sidebarSession) => sidebarSession.id));
     const muxIds = new Set(mux.sessions.map((muxSession) => muxSession.id));
     if (cachedIds.size !== muxIds.size) {
-      void fetchSidebarSessions();
+      void refetchSidebarSessions();
       return;
     }
 
     for (const muxId of muxIds) {
       if (!cachedIds.has(muxId)) {
-        void fetchSidebarSessions();
+        void refetchSidebarSessions();
         return;
       }
     }
-  }, [fetchSidebarSessions, mux?.sessions, mux?.status]);
+  }, [queryClient, refetchSidebarSessions, mux?.sessions, mux?.status]);
 
   useEffect(() => {
     if (!sessionIsOrchestrator) {
@@ -676,8 +674,8 @@ export default function SessionPage() {
 
   // Initial fetch — load independent sidebar/session data in parallel.
   useEffect(() => {
-    void Promise.all([fetchProjects(), fetchSession(), fetchSidebarSessions()]);
-  }, [fetchProjects, fetchSession, fetchSidebarSessions]);
+    void Promise.all([fetchProjects(), fetchSession()]);
+  }, [fetchProjects, fetchSession]);
 
   useEffect(() => {
     if (!sessionProjectId) return;
@@ -690,10 +688,9 @@ export default function SessionPage() {
     const interval = setInterval(() => {
       fetchSession();
       fetchProjectSessions();
-      fetchSidebarSessions();
     }, SESSION_PAGE_REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [fetchSession, fetchProjectSessions, fetchSidebarSessions]);
+  }, [fetchSession, fetchProjectSessions]);
 
   useEffect(() => {
     pageUnloadingRef.current = false;
@@ -714,7 +711,6 @@ export default function SessionPage() {
     return () => {
       sessionFetchControllerRef.current?.abort();
       projectSessionsFetchControllerRef.current?.abort();
-      sidebarFetchControllerRef.current?.abort();
     };
   }, []);
 
@@ -724,9 +720,10 @@ export default function SessionPage() {
         projects={projects}
         projectsLoading={projectsLoading}
         sidebarSessions={sidebarSessions}
-        sidebarLoading={sidebarSessions === null}
+        sidebarLoading={sidebarLoading}
         sidebarError={sidebarError}
-        onRetrySidebar={fetchSidebarSessions}
+        sidebarErrorMessage={sidebarErrorMessage}
+        onRetrySidebar={refetchSidebarSessions}
         activeProjectId={expectedProjectId ?? undefined}
         activeSessionId={id}
       >
@@ -754,9 +751,10 @@ export default function SessionPage() {
         projects={projects}
         projectsLoading={projectsLoading}
         sidebarSessions={sidebarSessions}
-        sidebarLoading={sidebarSessions === null}
+        sidebarLoading={sidebarLoading}
         sidebarError={sidebarError}
-        onRetrySidebar={fetchSidebarSessions}
+        sidebarErrorMessage={sidebarErrorMessage}
+        onRetrySidebar={refetchSidebarSessions}
         activeProjectId={expectedProjectId ?? undefined}
         activeSessionId={id}
       >
@@ -782,9 +780,10 @@ export default function SessionPage() {
         projects={projects}
         projectsLoading={projectsLoading}
         sidebarSessions={sidebarSessions}
-        sidebarLoading={sidebarSessions === null}
+        sidebarLoading={sidebarLoading}
         sidebarError={sidebarError}
-        onRetrySidebar={fetchSidebarSessions}
+        sidebarErrorMessage={sidebarErrorMessage}
+        onRetrySidebar={refetchSidebarSessions}
         activeProjectId={session?.projectId ?? expectedProjectId ?? undefined}
         activeSessionId={id}
       >
@@ -798,7 +797,7 @@ export default function SessionPage() {
               setRouteError(null);
               setSessionMissing(false);
               setLoading(true);
-              void Promise.all([fetchProjects(), fetchSession(), fetchSidebarSessions()]);
+              void Promise.all([fetchProjects(), fetchSession(), refetchSidebarSessions()]);
             },
           }}
           secondaryAction={{
@@ -819,9 +818,10 @@ export default function SessionPage() {
         projects={projects}
         projectsLoading={projectsLoading}
         sidebarSessions={sidebarSessions}
-        sidebarLoading={sidebarSessions === null}
+        sidebarLoading={sidebarLoading}
         sidebarError={sidebarError}
-        onRetrySidebar={fetchSidebarSessions}
+        sidebarErrorMessage={sidebarErrorMessage}
+        onRetrySidebar={refetchSidebarSessions}
         activeProjectId={expectedProjectId ?? undefined}
         activeSessionId={id}
       >
@@ -849,9 +849,10 @@ export default function SessionPage() {
       projectOrchestratorId={projectOrchestratorId}
       projects={projects}
       sidebarSessions={sidebarSessions}
-      sidebarLoading={sidebarSessions === null}
+      sidebarLoading={sidebarLoading}
       sidebarError={sidebarError}
-      onRetrySidebar={fetchSidebarSessions}
+      sidebarErrorMessage={sidebarErrorMessage}
+      onRetrySidebar={refetchSidebarSessions}
     />
   );
 }
