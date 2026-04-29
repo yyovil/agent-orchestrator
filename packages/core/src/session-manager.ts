@@ -1843,8 +1843,12 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     return promise;
   }
 
-  async function list(projectId?: string): Promise<Session[]> {
-    const allSessions = Object.entries(config.projects).flatMap(([entryProjectId, project]) => {
+  function listSessionRecords(projectId?: string): Array<{
+    sessionName: string;
+    projectId: string;
+    raw: Record<string, string>;
+  }> {
+    return Object.entries(config.projects).flatMap(([entryProjectId, project]) => {
       if (projectId && entryProjectId !== projectId) return [];
       return loadActiveSessionRecords(entryProjectId, project).map((record) => ({
         sessionName: record.sessionName,
@@ -1852,6 +1856,47 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         raw: record.raw,
       }));
     });
+  }
+
+  function sessionFromRecord(record: {
+    sessionName: string;
+    projectId: string;
+    raw: Record<string, string>;
+  }): Session | null {
+    const project = config.projects[record.projectId];
+    if (!project) return null;
+
+    const sessionsDir = getProjectSessionsDir(record.projectId);
+
+    let createdAt: Date | undefined;
+    let modifiedAt: Date | undefined;
+    try {
+      const metaPath = join(sessionsDir, `${record.sessionName}.json`);
+      const stats = statSync(metaPath);
+      createdAt = stats.birthtime;
+      modifiedAt = stats.mtime;
+    } catch {
+      // If stat fails, timestamps will fall back to current time.
+    }
+
+    return metadataToSession(
+      record.sessionName,
+      record.raw,
+      record.projectId,
+      project.sessionPrefix,
+      createdAt,
+      modifiedAt,
+    );
+  }
+
+  async function listLocal(projectId?: string): Promise<Session[]> {
+    return listSessionRecords(projectId)
+      .map((record) => sessionFromRecord(record))
+      .filter((session): session is Session => session !== null);
+  }
+
+  async function list(projectId?: string): Promise<Session[]> {
+    const allSessions = listSessionRecords(projectId);
     let openCodeSessionListPromise: Promise<OpenCodeSessionListEntry[]> | undefined;
 
     const tasks = allSessions.map(async ({ sessionName, projectId: sessionProjectId, raw }) => {
@@ -1859,26 +1904,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       if (!project) return null;
 
       const sessionsDir = getProjectSessionsDir(sessionProjectId);
-
-      let createdAt: Date | undefined;
-      let modifiedAt: Date | undefined;
-      try {
-        const metaPath = join(sessionsDir, `${sessionName}.json`);
-        const stats = statSync(metaPath);
-        createdAt = stats.birthtime;
-        modifiedAt = stats.mtime;
-      } catch {
-        // If stat fails, timestamps will fall back to current time
-      }
-
-      const session = metadataToSession(
-        sessionName,
-        raw,
-        sessionProjectId,
-        project.sessionPrefix,
-        createdAt,
-        modifiedAt,
-      );
+      const session = sessionFromRecord({ sessionName, projectId: sessionProjectId, raw });
+      if (!session) return null;
       const selection = resolveSelectionForSession(project, sessionName, raw);
       const effectiveAgentName = selection.agentName;
       const plugins = resolvePlugins(project, effectiveAgentName);
@@ -2974,6 +3001,7 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
     ensureOrchestrator,
     restore,
     list,
+    listLocal,
     listCached,
     invalidateCache,
     get,

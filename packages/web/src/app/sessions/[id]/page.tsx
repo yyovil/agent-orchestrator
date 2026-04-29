@@ -403,7 +403,7 @@ export default function SessionPage() {
     queryKey: SIDEBAR_SESSIONS_QUERY_KEY,
     queryFn: async ({ signal }) => {
       const body = await fetchJsonWithTimeout<{ sessions?: DashboardSession[] } | null>(
-        "/api/sessions?fresh=true",
+        "/api/sessions?view=sidebar",
         {
           signal,
           timeoutMs: PROJECT_SIDEBAR_FETCH_TIMEOUT_MS,
@@ -569,8 +569,8 @@ export default function SessionPage() {
     projectSessionsFetchControllerRef.current = controller;
     try {
       const query = isOrchestrator
-        ? `/api/sessions?project=${encodeURIComponent(projectId)}&fresh=true`
-        : `/api/sessions?project=${encodeURIComponent(projectId)}&orchestratorOnly=true&fresh=true`;
+        ? `/api/sessions?project=${encodeURIComponent(projectId)}&view=sidebar`
+        : `/api/sessions?project=${encodeURIComponent(projectId)}&orchestratorOnly=true&view=sidebar`;
       const body = await fetchJsonWithTimeout<ProjectSessionsBody>(query, {
         signal: controller.signal,
         timeoutMs: PROJECT_SIDEBAR_FETCH_TIMEOUT_MS,
