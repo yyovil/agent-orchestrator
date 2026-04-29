@@ -34,6 +34,7 @@ interface ProjectSidebarProps {
   activeSessionId: string | undefined;
   loading?: boolean;
   error?: boolean;
+  errorMessage?: string;
   onRetry?: () => void;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
@@ -278,6 +279,7 @@ function ProjectSidebarInner({
   activeSessionId,
   loading = false,
   error = false,
+  errorMessage,
   onRetry,
   collapsed = false,
   onToggleCollapsed: _onToggleCollapsed,
@@ -1056,7 +1058,11 @@ function ProjectSidebarInner({
                     })
                   ) : error ? (
                     <div className="px-3 py-2">
-                      <div className="project-sidebar__empty">Failed to load sessions</div>
+                      <div className="project-sidebar__empty">
+                        {errorMessage
+                          ? `Failed to load sessions: ${errorMessage}`
+                          : "Failed to load sessions"}
+                      </div>
                       <button
                         type="button"
                         className="mt-2 text-xs font-medium text-[var(--color-link)] hover:underline"

@@ -1,9 +1,11 @@
 import { act, render, screen, cleanup } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { DashboardSession } from "@/lib/types";
 import type { SessionPatch } from "@/lib/mux-protocol";
 
 const sessionDetailSpy = vi.fn();
+const projectSidebarSpy = vi.fn();
 const replaceSpy = vi.fn();
 let mockPathname = "/projects/my-app/sessions/worker-1";
 let mockParams: Record<string, string> = { id: "worker-1" };
@@ -28,6 +30,13 @@ vi.mock("@/components/SessionDetail", () => ({
   SessionDetail: (props: unknown) => {
     sessionDetailSpy(props);
     return <div data-testid="session-detail" />;
+  },
+}));
+
+vi.mock("@/components/ProjectSidebar", () => ({
+  ProjectSidebar: (props: unknown) => {
+    projectSidebarSpy(props);
+    return <div data-testid="project-sidebar" />;
   },
 }));
 
@@ -58,7 +67,22 @@ function makeWorkerSession(): DashboardSession {
 async function flushAsyncWork(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
   });
+}
+
+function renderWithQueryClient(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        gcTime: 0,
+        retry: false,
+      },
+    },
+  });
+
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
 describe("SessionPage project polling", () => {
@@ -66,6 +90,7 @@ describe("SessionPage project polling", () => {
     vi.useFakeTimers();
     vi.resetModules();
     sessionDetailSpy.mockClear();
+    projectSidebarSpy.mockClear();
     replaceSpy.mockClear();
     mockPathname = "/projects/my-app/sessions/worker-1";
     mockParams = { id: "worker-1", projectId: "my-app" };
@@ -144,7 +169,7 @@ describe("SessionPage project polling", () => {
 
     const { default: SessionPage } = await import("./page");
 
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     expect(fetch).toHaveBeenCalledWith(
@@ -248,7 +273,7 @@ describe("SessionPage project polling", () => {
 
     const { default: SessionPage } = await import("./page");
 
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     await act(async () => {
@@ -291,7 +316,7 @@ describe("SessionPage project polling", () => {
 
     const { default: SessionPage } = await import("./page");
 
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     expect(screen.getByText("Session not found")).toBeInTheDocument();
@@ -323,7 +348,7 @@ describe("SessionPage project polling", () => {
 
     const { default: SessionPage } = await import("./page");
 
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     expect(screen.getByText("Failed to load session")).toBeInTheDocument();
@@ -363,7 +388,7 @@ describe("SessionPage project polling", () => {
 
     const { default: SessionPage } = await import("./page");
 
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
 
     expect(screen.getByText("Loading session…")).toBeInTheDocument();
 
@@ -426,7 +451,7 @@ describe("SessionPage project polling", () => {
 
     const { default: SessionPage } = await import("./page");
 
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     expect(sessionFetches).toBe(1);
@@ -494,11 +519,11 @@ describe("SessionPage project polling", () => {
 
     const { default: SessionPage } = await import("./page");
 
-    const firstRender = render(<SessionPage />);
+    const firstRender = renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
     firstRender.unmount();
 
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     expect(fetchMock.mock.calls.filter(([url]) => url === "/api/projects")).toHaveLength(2);
@@ -554,7 +579,7 @@ describe("SessionPage project polling", () => {
 
     const { default: SessionPage } = await import("./page");
 
-    const rendered = render(<SessionPage />);
+    const rendered = renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     rendered.unmount();
@@ -566,6 +591,300 @@ describe("SessionPage project polling", () => {
     );
   });
 
+
+it("marks sidebar data as loading until the sessions list resolves", async () => {
+    const workerSession = makeWorkerSession();
+    let resolveSidebarSessions: ((value: Response) => void) | null = null;
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            projects: [{ id: "my-app", name: "My App", sessionPrefix: "my-app" }],
+          }),
+        } as Response);
+      }
+
+      if (url === "/api/sessions/worker-1") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => workerSession,
+        } as Response);
+      }
+
+      if (url === "/api/sessions?fresh=true") {
+        return new Promise<Response>((resolve) => {
+          resolveSidebarSessions = resolve;
+        });
+      }
+
+      if (url === "/api/sessions?project=my-app&orchestratorOnly=true&fresh=true") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ orchestratorId: "my-app-orchestrator" }),
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    }) as typeof fetch;
+
+    const { default: SessionPage } = await import("./page");
+
+    renderWithQueryClient(<SessionPage />);
+    await flushAsyncWork();
+
+    const latestBeforeSidebarResolve = projectSidebarSpy.mock.lastCall?.[0] as {
+      loading?: boolean;
+      sessions?: DashboardSession[] | null;
+    };
+
+    expect(latestBeforeSidebarResolve.loading).toBe(true);
+    expect(latestBeforeSidebarResolve.sessions).toBeNull();
+    expect(resolveSidebarSessions).not.toBeNull();
+
+    await act(async () => {
+      resolveSidebarSessions?.({
+        ok: true,
+        status: 200,
+        json: async () => ({ sessions: [workerSession] }),
+      } as Response);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await flushAsyncWork();
+
+    const latestAfterSidebarResolve = projectSidebarSpy.mock.lastCall?.[0] as {
+      loading?: boolean;
+      sessions?: DashboardSession[] | null;
+    };
+
+    expect(latestAfterSidebarResolve.loading).toBe(false);
+    expect(latestAfterSidebarResolve.sessions).toEqual([workerSession]);
+  });
+
+  it("surfaces sidebar fetch failures instead of leaving the loading skeleton active", async () => {
+    const workerSession = makeWorkerSession();
+
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            projects: [{ id: "my-app", name: "My App", sessionPrefix: "my-app" }],
+          }),
+        } as Response;
+      }
+
+      if (url === "/api/sessions/worker-1") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => workerSession,
+        } as Response;
+      }
+
+      if (url === "/api/sessions?fresh=true") {
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({}),
+        } as Response;
+      }
+
+      if (url === "/api/sessions?project=my-app&orchestratorOnly=true&fresh=true") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ orchestratorId: "my-app-orchestrator" }),
+        } as Response;
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const { default: SessionPage } = await import("./page");
+
+    renderWithQueryClient(<SessionPage />);
+    await flushAsyncWork();
+
+    const latestProps = projectSidebarSpy.mock.lastCall?.[0] as {
+      error?: boolean;
+      errorMessage?: string;
+      loading?: boolean;
+      sessions?: DashboardSession[] | null;
+    };
+
+    expect(latestProps.loading).toBe(false);
+    expect(latestProps.error).toBe(true);
+    expect(latestProps.errorMessage).toBe("HTTP 500");
+    expect(latestProps.sessions).toEqual([]);
+  });
+
+  it("keeps the last sidebar sessions visible when a background refresh fails", async () => {
+    const workerSession = makeWorkerSession();
+    let sidebarFetchCount = 0;
+
+    global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            projects: [{ id: "my-app", name: "My App", sessionPrefix: "my-app" }],
+          }),
+        } as Response;
+      }
+
+      if (url === "/api/sessions/worker-1") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => workerSession,
+        } as Response;
+      }
+
+      if (url === "/api/sessions?fresh=true") {
+        sidebarFetchCount += 1;
+        if (sidebarFetchCount === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ sessions: [workerSession] }),
+          } as Response;
+        }
+
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: "GitHub API rate limited" }),
+        } as Response;
+      }
+
+      if (url === "/api/sessions?project=my-app&orchestratorOnly=true&fresh=true") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ orchestratorId: "my-app-orchestrator" }),
+        } as Response;
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const { default: SessionPage } = await import("./page");
+
+    renderWithQueryClient(<SessionPage />);
+    await flushAsyncWork();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    await flushAsyncWork();
+
+    const latestProps = projectSidebarSpy.mock.lastCall?.[0] as {
+      error?: boolean;
+      errorMessage?: string;
+      loading?: boolean;
+      sessions?: DashboardSession[] | null;
+    };
+
+    expect(latestProps.loading).toBe(false);
+    expect(latestProps.error).toBe(true);
+    expect(latestProps.errorMessage).toBe("GitHub API rate limited");
+    expect(latestProps.sessions).toEqual([workerSession]);
+  });
+
+  it("applies mux snapshots that arrive before the initial sidebar fetch resolves", async () => {
+    const workerSession = makeWorkerSession();
+    const muxPatchedLastActivityAt = "2026-04-14T12:00:00.000Z";
+    let resolveSidebarSessions: ((value: Response) => void) | null = null;
+
+    mockMuxState.current = {
+      status: "connected",
+      sessions: [
+        {
+          id: "worker-1",
+          status: "working",
+          activity: "ready",
+          attentionLevel: "pending",
+          lastActivityAt: muxPatchedLastActivityAt,
+        },
+      ],
+    };
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/projects") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            projects: [{ id: "my-app", name: "My App", sessionPrefix: "my-app" }],
+          }),
+        } as Response);
+      }
+
+      if (url === "/api/sessions/worker-1") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => workerSession,
+        } as Response);
+      }
+
+      if (url === "/api/sessions?fresh=true") {
+        return new Promise<Response>((resolve) => {
+          resolveSidebarSessions = resolve;
+        });
+      }
+
+      if (url === "/api/sessions?project=my-app&orchestratorOnly=true&fresh=true") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ orchestratorId: "my-app-orchestrator" }),
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    }) as typeof fetch;
+
+    const { default: SessionPage } = await import("./page");
+
+    renderWithQueryClient(<SessionPage />);
+    await flushAsyncWork();
+
+    await act(async () => {
+      resolveSidebarSessions?.({
+        ok: true,
+        status: 200,
+        json: async () => ({ sessions: [workerSession] }),
+      } as Response);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await flushAsyncWork();
+
+    const latestProps = projectSidebarSpy.mock.lastCall?.[0] as {
+      sessions?: DashboardSession[] | null;
+    };
+
+    expect(latestProps.sessions).toEqual([
+      {
+        ...workerSession,
+        activity: "ready",
+        lastActivityAt: muxPatchedLastActivityAt,
+      },
+    ]);
+  });
 
 
   it("redirects the legacy session URL to the project-scoped route for clean projects", async () => {
@@ -612,7 +931,7 @@ describe("SessionPage project polling", () => {
     }) as typeof fetch;
 
     const { default: SessionPage } = await import("./page");
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     expect(replaceSpy).toHaveBeenCalledWith("/projects/my-app/sessions/worker-1");
@@ -664,7 +983,7 @@ describe("SessionPage project polling", () => {
     }) as typeof fetch;
 
     const { default: SessionPage } = await import("./page");
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     expect(replaceSpy).toHaveBeenCalledWith("/projects/broken-app/sessions/worker-1");
@@ -719,7 +1038,7 @@ describe("SessionPage project polling", () => {
     }) as typeof fetch;
 
     const { default: SessionPage } = await import("./page");
-    render(<SessionPage />);
+    renderWithQueryClient(<SessionPage />);
     await flushAsyncWork();
 
     expect(replaceSpy).toHaveBeenCalledWith("/projects/other-app/sessions/worker-1");
