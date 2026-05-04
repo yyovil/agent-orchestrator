@@ -284,7 +284,7 @@ describe("workspace.create()", () => {
         "branch refs/heads/feat/TEST-1",
       ].join("\n"),
     );
-    mockExistsSync.mockReturnValue(true);
+    mockExistsSync.mockReturnValueOnce(true);
 
     const info = await ws.findManagedWorkspace?.(
       makeCreateConfig({
@@ -310,7 +310,7 @@ describe("workspace.create()", () => {
         "branch refs/heads/feat/TEST-1",
       ].join("\n"),
     );
-    mockExistsSync.mockReturnValue(true);
+    mockExistsSync.mockReturnValueOnce(true);
 
     const info = await ws.findManagedWorkspace?.(
       makeCreateConfig({
@@ -347,7 +347,7 @@ describe("workspace.create()", () => {
         "branch refs/heads/feat/TEST-1",
       ].join("\n"),
     );
-    mockExistsSync.mockReturnValue(true);
+    mockExistsSync.mockReturnValueOnce(true);
 
     await expect(ws.findManagedWorkspace?.(makeCreateConfig())).rejects.toThrow(
       'outside AO-managed worktree directories',
@@ -366,7 +366,7 @@ describe("workspace.create()", () => {
       ].join("\n"),
     );
     // existsSync returns false for the deleted worktree path
-    mockExistsSync.mockReturnValue(false);
+    mockExistsSync.mockReturnValueOnce(false);
 
     const info = await ws.findManagedWorkspace?.(makeCreateConfig());
 
@@ -384,7 +384,7 @@ describe("workspace.create()", () => {
         "branch refs/heads/feat/TEST-1",
       ].join("\r\n"),
     );
-    mockExistsSync.mockReturnValue(true);
+    mockExistsSync.mockReturnValueOnce(true);
 
     const info = await ws.findManagedWorkspace?.(makeCreateConfig());
 
