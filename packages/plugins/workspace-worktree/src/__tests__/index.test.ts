@@ -191,18 +191,20 @@ describe("workspace.create()", () => {
     // First call: git remote get-url origin
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["remote", "get-url", "origin"], {
       cwd: "/repo/path",
+      timeout: 30_000,
     });
 
     // Second call: git fetch origin --quiet
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["fetch", "origin", "--quiet"], {
       cwd: "/repo/path",
+      timeout: 30_000,
     });
 
     // Third call: git rev-parse --verify --quiet origin/main
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["rev-parse", "--verify", "--quiet", "origin/main"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
 
     // Fourth call: git worktree add -b <branch> <path> <baseRef>
@@ -216,7 +218,7 @@ describe("workspace.create()", () => {
         "/mock-home/.worktrees/myproject/session-1",
         "origin/main",
       ],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
@@ -254,7 +256,7 @@ describe("workspace.create()", () => {
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["worktree", "add", "-b", "feat/TEST-1", "/mock-home/.worktrees/myproject/session-1", "origin/main"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
@@ -414,7 +416,7 @@ describe("workspace.create()", () => {
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["rev-parse", "--verify", "--quiet", "refs/heads/main"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
 
     expect(mockExecFileAsync).toHaveBeenCalledWith(
@@ -427,7 +429,7 @@ describe("workspace.create()", () => {
         "/mock-home/.worktrees/myproject/session-1",
         "refs/heads/main",
       ],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
@@ -457,12 +459,13 @@ describe("workspace.create()", () => {
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["worktree", "add", "/mock-home/.worktrees/myproject/session-1", "origin/main"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
 
     // Fourth call: checkout
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["checkout", "feat/TEST-1"], {
       cwd: "/mock-home/.worktrees/myproject/session-1",
+      timeout: 30_000,
     });
 
     expect(info.branch).toBe("feat/TEST-1");
@@ -482,11 +485,12 @@ describe("workspace.create()", () => {
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["worktree", "add", "/mock-home/.worktrees/myproject/session-1", "refs/heads/main"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
 
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["checkout", "feat/TEST-1"], {
       cwd: "/mock-home/.worktrees/myproject/session-1",
+      timeout: 30_000,
     });
 
     expect(info.branch).toBe("feat/TEST-1");
@@ -510,7 +514,7 @@ describe("workspace.create()", () => {
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["worktree", "remove", "--force", "/mock-home/.worktrees/myproject/session-1"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
@@ -606,6 +610,7 @@ describe("workspace.create()", () => {
     // fetch should use expanded path
     expect(mockExecFileAsync).toHaveBeenCalledWith("git", ["fetch", "origin", "--quiet"], {
       cwd: "/mock-home/my-repo",
+      timeout: 30_000,
     });
   });
 
@@ -628,7 +633,7 @@ describe("workspace.create()", () => {
         "/mock-home/.worktrees/myproject/session-1",
         "refs/heads/main",
       ],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 });
@@ -655,7 +660,7 @@ describe("workspace.restore()", () => {
         "/mock-home/.worktrees/myproject/session-1",
         "origin/feat/TEST-1",
       ],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
 
     expect(info.branch).toBe("feat/TEST-1");
@@ -682,7 +687,7 @@ describe("workspace.restore()", () => {
         "/mock-home/.worktrees/myproject/session-1",
         "refs/heads/main",
       ],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
 
     expect(info).toEqual({
@@ -709,14 +714,14 @@ describe("workspace.destroy()", () => {
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { cwd: "/mock-home/.worktrees/myproject/session-1" },
+      { cwd: "/mock-home/.worktrees/myproject/session-1", timeout: 30_000 },
     );
 
     // Second call: worktree remove
     expect(mockExecFileAsync).toHaveBeenCalledWith(
       "git",
       ["worktree", "remove", "--force", "/mock-home/.worktrees/myproject/session-1"],
-      { cwd: "/repo/path" },
+      { cwd: "/repo/path", timeout: 30_000 },
     );
   });
 
