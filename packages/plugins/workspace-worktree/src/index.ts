@@ -25,7 +25,7 @@ export const manifest = {
 
 /** Run a git command in a given directory */
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", args, { cwd });
+  const { stdout } = await execFileAsync("git", args, { cwd, timeout: GIT_TIMEOUT });
   return stdout.trimEnd();
 }
 
@@ -105,10 +105,10 @@ interface WorktreeEntry {
 }
 
 function parseWorktreeList(output: string): WorktreeEntry[] {
-  if (!output.trim()) return [];
+  const normalized = output.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return [];
 
-  return output
-    .trim()
+  return normalized
     .split("\n\n")
     .map((block) => {
       let path = "";
@@ -229,7 +229,9 @@ export function create(config?: Record<string, unknown>): Workspace {
       const allowedPaths = new Set([currentManagedPath, legacyManagedPath]);
 
       const worktrees = parseWorktreeList(await git(repoPath, "worktree", "list", "--porcelain"));
-      const matches = worktrees.filter((entry) => entry.branch === cfg.branch);
+      const matches = worktrees.filter(
+        (entry) => entry.branch === cfg.branch && existsSync(entry.path),
+      );
 
       if (matches.length === 0) return null;
       if (matches.length > 1) {

@@ -349,6 +349,47 @@ describe("workspace.create()", () => {
     );
   });
 
+  it("skips worktree entries whose path no longer exists on disk", async () => {
+    const ws = create();
+
+    // The worktree is listed by git but the directory was manually deleted
+    mockGitSuccess(
+      [
+        "worktree /mock-home/.worktrees/myproject/session-1",
+        "HEAD deadbeef",
+        "branch refs/heads/feat/TEST-1",
+      ].join("\n"),
+    );
+    // existsSync returns false for the deleted worktree path
+    mockExistsSync.mockReturnValue(false);
+
+    const info = await ws.findManagedWorkspace?.(makeCreateConfig());
+
+    expect(info).toBeNull();
+  });
+
+  it("handles CRLF line endings in git worktree list output", async () => {
+    const ws = create();
+
+    // Simulate Windows git output with \r\n line endings
+    mockGitSuccess(
+      [
+        "worktree /mock-home/.worktrees/myproject/session-1",
+        "HEAD deadbeef",
+        "branch refs/heads/feat/TEST-1",
+      ].join("\r\n"),
+    );
+
+    const info = await ws.findManagedWorkspace?.(makeCreateConfig());
+
+    expect(info).toEqual({
+      path: "/mock-home/.worktrees/myproject/session-1",
+      branch: "feat/TEST-1",
+      sessionId: "session-1",
+      projectId: "myproject",
+    });
+  });
+
   it("continues when fetch fails (offline)", async () => {
     const ws = create();
 

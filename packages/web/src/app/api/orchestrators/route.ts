@@ -10,22 +10,8 @@ function classifySpawnError(projectId: string, error: unknown): {
 } {
   const message = error instanceof Error ? error.message : "Failed to spawn orchestrator";
 
-  if (message.includes("already exists and is still registered with git")) {
-    return {
-      status: 409,
-      payload: {
-        error: [
-          `AO found an older orchestrator workspace for "${projectId}" but could not safely reuse it automatically.`,
-          "Your repository is safe.",
-          "Review the existing workspace, then either reuse it manually or remove it and create a fresh orchestrator workspace.",
-        ].join(" "),
-        code: "orchestrator_workspace_conflict",
-        recovery: "reuse-or-recreate-workspace",
-      },
-    };
-  }
-
   if (
+    message.includes("already exists and is still registered with git") ||
     message.includes("outside AO-managed worktree directories") ||
     message.includes('Found multiple worktrees for orchestrator branch "')
   ) {
