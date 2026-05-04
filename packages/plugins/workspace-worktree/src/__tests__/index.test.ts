@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { ProjectConfig, WorkspaceCreateConfig, WorkspaceInfo } from "@aoagents/ao-core";
+import type { ProjectConfig, WorkspaceCreateConfig, WorkspaceInfo } from "@aoagents/ao-core/types";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any import that uses the mocked modules
@@ -269,6 +269,83 @@ describe("workspace.create()", () => {
 
     await expect(ws.create(makeCreateConfig())).rejects.toThrow(
       'Worktree path "/mock-home/.worktrees/myproject/session-1" already exists and is still registered with git',
+    );
+  });
+
+  it("finds an adoptable worktree in the project-scoped worktree directory", async () => {
+    const ws = create();
+
+    mockGitSuccess(
+      [
+        "worktree /mock-home/.agent-orchestrator/projects/myproject/worktrees/session-1",
+        "HEAD deadbeef",
+        "branch refs/heads/feat/TEST-1",
+      ].join("\n"),
+    );
+
+    const info = await ws.findManagedWorkspace?.(
+      makeCreateConfig({
+        worktreeDir: "/mock-home/.agent-orchestrator/projects/myproject/worktrees",
+      }),
+    );
+
+    expect(info).toEqual({
+      path: "/mock-home/.agent-orchestrator/projects/myproject/worktrees/session-1",
+      branch: "feat/TEST-1",
+      sessionId: "session-1",
+      projectId: "myproject",
+    });
+  });
+
+  it("finds an adoptable worktree in the legacy managed worktree directory", async () => {
+    const ws = create();
+
+    mockGitSuccess(
+      [
+        "worktree /mock-home/.worktrees/myproject/session-1",
+        "HEAD deadbeef",
+        "branch refs/heads/feat/TEST-1",
+      ].join("\n"),
+    );
+
+    const info = await ws.findManagedWorkspace?.(
+      makeCreateConfig({
+        worktreeDir: "/mock-home/.agent-orchestrator/projects/myproject/worktrees",
+      }),
+    );
+
+    expect(info?.path).toBe("/mock-home/.worktrees/myproject/session-1");
+  });
+
+  it("returns null when no managed worktree tracks the requested branch", async () => {
+    const ws = create();
+
+    mockGitSuccess(
+      [
+        "worktree /mock-home/.worktrees/myproject/session-2",
+        "HEAD deadbeef",
+        "branch refs/heads/feat/OTHER",
+      ].join("\n"),
+    );
+
+    const info = await ws.findManagedWorkspace?.(makeCreateConfig());
+
+    expect(info).toBeNull();
+  });
+
+  it("throws when the matching branch is checked out outside AO-managed worktree directories", async () => {
+    const ws = create();
+
+    mockGitSuccess(
+      [
+        "worktree /tmp/manual-worktree",
+        "HEAD deadbeef",
+        "branch refs/heads/feat/TEST-1",
+      ].join("\n"),
+    );
+
+    await expect(ws.findManagedWorkspace?.(makeCreateConfig())).rejects.toThrow(
+      'outside AO-managed worktree directories',
     );
   });
 
