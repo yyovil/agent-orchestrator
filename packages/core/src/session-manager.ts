@@ -73,6 +73,7 @@ const execFileAsync = promisify(execFile);
 const OPENCODE_DISCOVERY_TIMEOUT_MS = 10_000;
 const OPENCODE_INTERACTIVE_DISCOVERY_TIMEOUT_MS = 10_000;
 const FORGE_CONVERSATION_CREATE_TIMEOUT_MS = 30_000;
+const FORGE_MAX_BUFFER_BYTES = 10 * 1024 * 1024; // 10 MB
 
 function parseForgeConversationId(raw: string): string | undefined {
   const matches =
@@ -89,6 +90,7 @@ async function createForgeConversationId(): Promise<string> {
 
     let output = "";
     let errorOutput = "";
+    let bufferExceeded = false;
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       reject(new Error("Command timed out: forge conversation new"));
@@ -96,12 +98,22 @@ async function createForgeConversationId(): Promise<string> {
 
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
+      if (bufferExceeded) return;
       output += chunk;
+      if (output.length + errorOutput.length > FORGE_MAX_BUFFER_BYTES) {
+        bufferExceeded = true;
+        child.kill("SIGTERM");
+      }
     });
 
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
+      if (bufferExceeded) return;
       errorOutput += chunk;
+      if (output.length + errorOutput.length > FORGE_MAX_BUFFER_BYTES) {
+        bufferExceeded = true;
+        child.kill("SIGTERM");
+      }
     });
 
     child.on("error", (err) => {
@@ -111,6 +123,10 @@ async function createForgeConversationId(): Promise<string> {
 
     child.on("close", (code, signal) => {
       clearTimeout(timer);
+      if (bufferExceeded) {
+        reject(new Error(`Output exceeded ${FORGE_MAX_BUFFER_BYTES} bytes: forge conversation new`));
+        return;
+      }
       if (code === 0) {
         resolve(output);
         return;

@@ -448,7 +448,7 @@ export interface AgentSessionInfo {
 export interface CostEstimate {
   inputTokens: number;
   outputTokens: number;
-  estimatedCostUsd: number;
+  estimatedCostUsd: number
 }
 
 // =============================================================================

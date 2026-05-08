@@ -1,7 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Session, RuntimeHandle, AgentLaunchConfig } from "@aoagents/ao-core";
 import { EventEmitter } from "node:events";
+import { createRequire } from "node:module";
+import { constants as OS_CONSTANTS } from "node:os";
 import { PassThrough } from "node:stream";
+
+const require = createRequire(import.meta.url);
+const packageJson = require("../package.json") as { name: string; version: string; description: string };
+const PACKAGE_NAME_PREFIX = "@aoagents/ao-plugin-agent-";
+const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
+  ? packageJson.name.slice(PACKAGE_NAME_PREFIX.length)
+  : packageJson.name;
+const SIGTERM_SIGNAL = OS_CONSTANTS.signals.SIGTERM;
 
 const {
   mockReadLastActivityEntry,
@@ -9,6 +19,7 @@ const {
   mockSetupPathWrapperWorkspace,
   mockExecFileAsync,
   mockSpawnAsync,
+  mockFetch,
   mockWhichSync,
 } = vi.hoisted(() => ({
   mockReadLastActivityEntry: vi.fn().mockResolvedValue(null),
@@ -16,6 +27,7 @@ const {
   mockSetupPathWrapperWorkspace: vi.fn().mockResolvedValue(undefined),
   mockExecFileAsync: vi.fn(),
   mockSpawnAsync: vi.fn(),
+  mockFetch: vi.fn(),
   mockWhichSync: vi.fn(),
 }));
 
@@ -35,6 +47,8 @@ vi.mock("which", () => ({
   },
   sync: mockWhichSync,
 }));
+
+vi.stubGlobal("fetch", mockFetch);
 
 vi.mock("node:child_process", () => ({
   execFile: (...args: unknown[]) => {
@@ -86,7 +100,7 @@ vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(),
 }));
 
-import { create, detect, manifest, default as defaultExport } from "./index.js";
+import { create, detect, manifest, resetModelsDevCache, default as defaultExport } from "./index.js";
 
 const VALID_FORGE_CONVERSATION_ID = "53f35f67-e699-4391-96c8-598eee67e67d";
 
@@ -155,19 +169,75 @@ function makeActivityResult(
   };
 }
 
+function makeForgeConversationInfoOutput({
+  title = "Terminate All Orchestrator Sessions",
+  tasks = "use `packages/ao/bin/ao.js status` cmd and kill all of them orchestrator session running real quick.",
+  inputTokens = 1_000,
+  cachedTokens = 200,
+  outputTokens = 50,
+}: {
+  title?: string;
+  tasks?: string;
+  inputTokens?: number;
+  cachedTokens?: number;
+  outputTokens?: number;
+} = {}): string {
+  const cachedPct = inputTokens > 0 ? Math.round((cachedTokens / inputTokens) * 100) : 0;
+  return [
+    "CONVERSATION",
+    `  id    ${VALID_FORGE_CONVERSATION_ID}`,
+    `  title ${title}`,
+    `  tasks ${tasks}`,
+    "",
+    "TOKEN USAGE",
+    `  input tokens  ${inputTokens.toLocaleString("en-US")}`,
+    `  cached tokens ${cachedTokens.toLocaleString("en-US")} [${cachedPct}%]`,
+    `  output tokens ${outputTokens.toLocaleString("en-US")}`,
+  ].join("\n");
+}
+
+function makeModelsDevCatalog(): unknown {
+  return {
+    opencode: {
+      models: {
+        "gpt-5.4": {
+          cost: {
+            input: 2.5,
+            output: 15,
+            cache_read: 0.25,
+          },
+        },
+      },
+    },
+    zai: {
+      models: {
+        "glm-5.1": {
+          cost: {
+            input: 1.4,
+            output: 4.4,
+            cache_read: 0.26,
+          },
+        },
+      },
+    },
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockWhichSync.mockReset();
   mockSpawnAsync.mockReset();
+  mockFetch.mockReset();
+  resetModelsDevCache();
 });
 
 describe("manifest", () => {
   it("has correct Forge manifest", () => {
     expect(manifest).toEqual({
-      name: "forge",
+      name: pluginName,
       slot: "agent",
-      description: "Agent plugin: Forge",
-      version: "0.1.0",
+      description: packageJson.description,
+      version: packageJson.version,
       displayName: "Forge",
     });
   });
@@ -176,8 +246,8 @@ describe("manifest", () => {
 describe("create", () => {
   it("uses forge as process name and post-launch prompt mode", () => {
     const agent = create();
-    expect(agent.name).toBe("forge");
-    expect(agent.processName).toBe("forge");
+    expect(agent.name).toBe(pluginName);
+    expect(agent.processName).toBe(pluginName);
     expect(agent.promptDelivery).toBe("post-launch");
   });
 
@@ -313,9 +383,27 @@ describe("recordActivity", () => {
   });
 
   it("classifies waiting_input terminal output when recording activity", async () => {
-    await agent.recordActivity?.(makeSession(), "Do you want to proceed? (Y)es/(N)o");
+    await agent.recordActivity?.(
+      makeSession(),
+      "[17:09:11] Maximum tool failure limit (3) reached for this turn\n? Do you want to continue anyway? y/N:",
+    );
     const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as ((output: string) => string) | undefined;
-    expect(classify?.("Do you want to proceed? (Y)es/(N)o")).toBe("waiting_input");
+    expect(
+      classify?.(
+        "[17:09:11] Maximum tool failure limit (3) reached for this turn\n? Do you want to continue anyway? y/N:",
+      ),
+    ).toBe("waiting_input");
+  });
+
+  it("classifies ansi-colored forge continue prompts as waiting_input", async () => {
+    await agent.recordActivity?.(
+      makeSession(),
+      "\u001b[33m?\u001b[39m Do you want to continue anyway? y/N:",
+    );
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as ((output: string) => string) | undefined;
+    expect(classify?.("\u001b[33m?\u001b[39m Do you want to continue anyway? y/N:")).toBe(
+      "waiting_input",
+    );
   });
 
   it("skips recording when workspacePath is missing", async () => {
@@ -331,34 +419,119 @@ describe("getSessionInfo", () => {
     expect(await agent.getSessionInfo(makeSession())).toBeNull();
   });
 
-  it("prefers the first meaningful line from conversation markdown", async () => {
-    mockSpawnAsync.mockResolvedValueOnce({
-      stdout: "# Assistant response\nImplemented the fix\n\nMore detail",
-      stderr: "",
+  it("uses the conversation title as the summary and includes cost", async () => {
+    mockSpawnAsync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "conversation" && args[1] === "info") {
+        return Promise.resolve({
+          stdout: makeForgeConversationInfoOutput(),
+          stderr: "",
+        });
+      }
+      return Promise.reject(new Error("unexpected"));
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => makeModelsDevCatalog(),
+    });
+    const info = await agent.getSessionInfo(
+      makeSession({
+        metadata: {
+          forgeConversationId: VALID_FORGE_CONVERSATION_ID,
+          forgeModel: "gpt-5.4",
+        },
+      }),
+    );
+    expect(info?.summary).toBe("Terminate All Orchestrator Sessions");
+    expect(info?.summaryIsFallback).toBe(false);
+    expect(info?.agentSessionId).toBe(VALID_FORGE_CONVERSATION_ID);
+    expect(info?.cost?.inputTokens).toBe(1_000);
+    expect(info?.cost?.outputTokens).toBe(50);
+    expect(info?.cost?.estimatedCostUsd).toBeCloseTo(0.0028, 6);
+  });
+
+  it("uses conversation info title and models.dev pricing for non-codex providers", async () => {
+    mockSpawnAsync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "conversation" && args[1] === "info") {
+        return Promise.resolve({
+          stdout: makeForgeConversationInfoOutput({
+            inputTokens: 500,
+            cachedTokens: 100,
+            outputTokens: 20,
+          }),
+          stderr: "",
+        });
+      }
+      return Promise.reject(new Error("unexpected"));
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => makeModelsDevCatalog(),
+    });
+    const info = await agent.getSessionInfo(
+      makeSession({
+        metadata: {
+          forgeConversationId: VALID_FORGE_CONVERSATION_ID,
+          forgeModel: "zai_coding/glm-5.1",
+        },
+      }),
+    );
+    expect(info?.summary).toBe("Terminate All Orchestrator Sessions");
+    expect(info?.summaryIsFallback).toBe(false);
+    expect(info?.cost?.inputTokens).toBe(500);
+    expect(info?.cost?.outputTokens).toBe(20);
+    expect(info?.cost?.estimatedCostUsd).toBeCloseTo(0.000674, 6);
+  });
+
+  it("treats forge conversation info lookup as unavailable when command closes with SIGTERM", async () => {
+    mockSpawnAsync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "conversation" && args[1] === "info") {
+        return Promise.reject(
+          Object.assign(new Error("terminated"), {
+            code: 1,
+            signal: SIGTERM_SIGNAL,
+            stdout: "",
+            stderr: "",
+          }),
+        );
+      }
+      return Promise.reject(new Error("unexpected"));
+    });
+    const info = await agent.getSessionInfo(
+      makeSession({
+        metadata: { forgeConversationId: VALID_FORGE_CONVERSATION_ID },
+      }),
+    );
+    expect(info).toMatchObject({
+      agentSessionId: VALID_FORGE_CONVERSATION_ID,
+      summary: null,
+      summaryIsFallback: undefined,
+    });
+    expect(info).not.toHaveProperty("cost");
+  });
+
+  it("skips cost lookup when no forge model metadata is present", async () => {
+    mockSpawnAsync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args[0] === "conversation" && args[1] === "info") {
+        return Promise.resolve({
+          stdout: makeForgeConversationInfoOutput(),
+          stderr: "",
+        });
+      }
+      return Promise.reject(new Error("unexpected"));
     });
     const info = await agent.getSessionInfo(
       makeSession({ metadata: { forgeConversationId: VALID_FORGE_CONVERSATION_ID } }),
     );
-    expect(info?.summary).toBe("Implemented the fix");
+    expect(info?.summary).toBe("Terminate All Orchestrator Sessions");
     expect(info?.summaryIsFallback).toBe(false);
-    expect(info?.agentSessionId).toBe(VALID_FORGE_CONVERSATION_ID);
-  });
-
-  it("falls back to conversation info text", async () => {
-    mockSpawnAsync
-      .mockResolvedValueOnce({ stdout: "# Assistant response\n", stderr: "" })
-      .mockResolvedValueOnce({ stdout: "summary=Done all tasks\n", stderr: "" });
-    const info = await agent.getSessionInfo(
-      makeSession({ metadata: { forgeConversationId: VALID_FORGE_CONVERSATION_ID } }),
-    );
-    expect(info?.summary).toBe("Done all tasks");
-    expect(info?.summaryIsFallback).toBe(true);
+    expect(info?.cost).toBeUndefined();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 
 describe("getRestoreCommand", () => {
   const agent = create();
-  it("builds restore command using project model", async () => {
+  it("builds restore command using the conversation id only", async () => {
     const cmd = await agent.getRestoreCommand(
       makeSession({ metadata: { forgeConversationId: VALID_FORGE_CONVERSATION_ID } }),
       {
@@ -370,45 +543,47 @@ describe("getRestoreCommand", () => {
         agentConfig: { model: "provider/gpt-4o" },
       },
     );
-    expect(cmd).toBe(
-      `forge --conversation-id '${VALID_FORGE_CONVERSATION_ID}' --model 'provider' 'gpt-4o'`,
-    );
+    expect(cmd).toBe(`forge --conversation-id '${VALID_FORGE_CONVERSATION_ID}'`);
   });
 });
 
 describe("postLaunchSetup", () => {
   const agent = create();
 
-  it("skips model config when no metadata model", async () => {
+  it("only sets up workspace hooks when no metadata model is present", async () => {
     mockExecFileAsync.mockResolvedValue({ stdout: "", stderr: "" });
     await expect(
       agent.postLaunchSetup?.(makeSession({ workspacePath: "/workspace/test", metadata: {} })),
     ).resolves.toBeUndefined();
     expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
     expect(mockExecFileAsync).not.toHaveBeenCalled();
+    expect(mockSpawnAsync).not.toHaveBeenCalled();
   });
 
-  it("runs forge config set model using metadata model", async () => {
-    mockSpawnAsync.mockResolvedValue({ stdout: "", stderr: "" });
-    const session = makeSession({
-      workspacePath: "/workspace/test",
-      metadata: { forgeModel: "provider/gpt-4o" },
-    });
-    await agent.postLaunchSetup?.(session);
+  it("does not mutate forge config when metadata includes a model", async () => {
+    await expect(
+      agent.postLaunchSetup?.(
+        makeSession({
+          workspacePath: "/workspace/test",
+          metadata: { forgeModel: "provider/gpt-4o" },
+        }),
+      ),
+    ).resolves.toBeUndefined();
     expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
-    expect(mockSpawnAsync).toHaveBeenCalledWith(
-      "forge",
-      ["config", "set", "model", "provider", "gpt-4o"],
-      expect.objectContaining({ cwd: "/workspace/test", stdio: ["ignore", "pipe", "pipe"] }),
-    );
+    expect(mockSpawnAsync).not.toHaveBeenCalled();
   });
 
-  it("throws for invalid forge model", async () => {
-    const session = makeSession({
-      workspacePath: "/workspace/test",
-      metadata: { forgeModel: "badmodel" },
-    });
-    await expect(agent.postLaunchSetup?.(session)).rejects.toThrow("Invalid Forge model format");
+  it("ignores invalid forge model metadata during post-launch setup", async () => {
+    await expect(
+      agent.postLaunchSetup?.(
+        makeSession({
+          workspacePath: "/workspace/test",
+          metadata: { forgeModel: "badmodel" },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+    expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
+    expect(mockSpawnAsync).not.toHaveBeenCalled();
   });
 });
 
@@ -448,29 +623,9 @@ describe("getActivityState", () => {
     killSpy.mockRestore();
   });
 
-  it("returns active from native Forge conversation stats", async () => {
-    const updatedAt = new Date();
-    mockReadLastActivityEntry.mockResolvedValue(null);
-    mockSpawnAsync.mockResolvedValue({
-      stdout: `updated-at=${updatedAt.toISOString()}\n`,
-      stderr: "",
-    });
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const state = await agent.getActivityState(
-      makeSession({
-        runtimeHandle: makeProcessHandle(101),
-        metadata: { forgeConversationId: VALID_FORGE_CONVERSATION_ID },
-      }),
-    );
-    expect(state?.state).toBe("active");
-    expect(state?.timestamp.toISOString()).toBe(updatedAt.toISOString());
-    killSpy.mockRestore();
-  });
-
-  it("returns active from JSONL fallback when native signal is unavailable", async () => {
+  it("returns active from JSONL fallback without querying Forge stats", async () => {
     const activityAt = new Date();
     mockReadLastActivityEntry.mockResolvedValue(makeActivityResult("active", activityAt));
-    mockSpawnAsync.mockRejectedValue(new Error("native stats unavailable"));
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const state = await agent.getActivityState(
       makeSession({
@@ -480,6 +635,7 @@ describe("getActivityState", () => {
     );
     expect(state?.state).toBe("active");
     expect(state?.timestamp.toISOString()).toBe(activityAt.toISOString());
+    expect(mockSpawnAsync).not.toHaveBeenCalled();
     killSpy.mockRestore();
   });
 
@@ -505,9 +661,11 @@ describe("getActivityState", () => {
     const state = await agent.getActivityState(
       makeSession({
         runtimeHandle: makeProcessHandle(101),
+        metadata: { forgeConversationId: VALID_FORGE_CONVERSATION_ID },
       }),
     );
     expect(state).toBeNull();
+    expect(mockSpawnAsync).not.toHaveBeenCalled();
     killSpy.mockRestore();
   });
 });

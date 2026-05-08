@@ -11,6 +11,7 @@ import {
   PREFERRED_GH_PATH,
   asValidForgeSessionId,
   type Agent,
+  type CostEstimate,
   type AgentSessionInfo,
   type AgentLaunchConfig,
   type ActivityDetection,
@@ -23,13 +24,51 @@ import {
   type ForgeAgentConfig,
 } from "@aoagents/ao-core";
 import { execFile, spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import which from "which";
 
+const require = createRequire(import.meta.url);
+const packageJson = require("../package.json") as { name: string; version: string; description: string };
+const PACKAGE_NAME_PREFIX = "@aoagents/ao-plugin-agent-";
+const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
+  ? packageJson.name.slice(PACKAGE_NAME_PREFIX.length)
+  : packageJson.name;
+
 const execFileAsync = promisify(execFile);
-const MODEL_RE = /^[A-Za-z0-9._-]+$/;
-const MODEL_SEPARATE_RE = /^\S+\s+.+$/;
 const FORGE_COMMAND_TIMEOUT_MS = 30_000;
+const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // 10 MB
+const MODELS_DEV_API_URL = "https://models.dev/api.json";
+const MODELS_DEV_FETCH_TIMEOUT_MS = 2_000;
+const MODELS_DEV_CACHE_TTL_MS = 60 * 60 * 1_000;
+const MODELS_DEV_DEFAULT_PROVIDER = "opencode";
+
+interface ForgeConversationInfo {
+  title: string | null;
+  tasks: string | null;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+}
+
+interface ModelsDevPricing {
+  input?: number;
+  output?: number;
+  cache_read?: number;
+}
+
+interface ModelsDevModel {
+  cost?: ModelsDevPricing;
+}
+
+interface ModelsDevProvider {
+  models?: Record<string, ModelsDevModel>;
+}
+
+type ModelsDevCatalog = Record<string, ModelsDevProvider>;
+
+let modelsDevCache: { data?: ModelsDevCatalog; expiresAt: number; promise?: Promise<ModelsDevCatalog | null> } | null =
+  null;
 
 async function runForgeCommand(
   args: string[],
@@ -44,6 +83,7 @@ async function runForgeCommand(
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let bufferExceeded = false;
     const timeoutMs = options.timeout ?? FORGE_COMMAND_TIMEOUT_MS;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -52,12 +92,22 @@ async function runForgeCommand(
 
     child.stdout?.setEncoding("utf8");
     child.stdout?.on("data", (chunk: string) => {
+      if (bufferExceeded) return;
       stdout += chunk;
+      if (stdout.length + stderr.length > MAX_BUFFER_BYTES) {
+        bufferExceeded = true;
+        child.kill("SIGTERM");
+      }
     });
 
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
+      if (bufferExceeded) return;
       stderr += chunk;
+      if (stdout.length + stderr.length > MAX_BUFFER_BYTES) {
+        bufferExceeded = true;
+        child.kill("SIGTERM");
+      }
     });
 
     child.on("error", (err) => {
@@ -75,6 +125,10 @@ async function runForgeCommand(
 
       const commandLabel = `forge ${args.join(" ")}`;
       const detail = stderr.trim() || stdout.trim();
+      if (bufferExceeded) {
+        reject(new Error(`Output exceeded ${MAX_BUFFER_BYTES} bytes: ${commandLabel}`));
+        return;
+      }
       if (timedOut) {
         reject(new Error(`Command timed out: ${commandLabel}`));
         return;
@@ -91,164 +145,274 @@ async function runForgeCommand(
   });
 }
 
-function parseForgeModelArgs(raw: string): [provider: string, model: string] {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    throw new Error(`Invalid Forge model format: "${raw}". Use "<provider> <model>" or "<provider>/<model>".`);
-  }
+function parseTokenCount(raw: string): number | null {
+  const normalized = raw.replaceAll(",", "").trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
-  if (trimmed.includes("/")) {
-    const slashIndex = trimmed.indexOf("/");
-    if (slashIndex === 0 || slashIndex === trimmed.length - 1) {
-      throw new Error(
-        `Invalid Forge model format: "${raw}". Use "<provider> <model>" or "<provider>/<model>".`,
-      );
+function parseForgeConversationInfo(text: string): ForgeConversationInfo | null {
+  let title: string | null = null;
+  let tasks: string | null = null;
+  let inputTokens = 0;
+  let cachedTokens = 0;
+  let outputTokens = 0;
+  let currentField: "tasks" | null = null;
+  let sawField = false;
+
+  for (const rawLine of text.split("\n")) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      currentField = null;
+      continue;
     }
-    const provider = trimmed.slice(0, slashIndex);
-    const model = trimmed.slice(slashIndex + 1);
-    if (!MODEL_RE.test(provider) || !model.trim()) {
-      throw new Error(
-        `Invalid Forge model format: "${raw}". Use "<provider> <model>" or "<provider>/<model>".`,
-      );
+
+    const titleMatch = trimmed.match(/^title\s+(.+)$/i);
+    if (titleMatch) {
+      title = titleMatch[1]?.trim() ?? null;
+      currentField = null;
+      sawField = true;
+      continue;
     }
-    return [provider, model];
-  }
 
-  if (!MODEL_SEPARATE_RE.test(trimmed)) {
-    throw new Error(`Invalid Forge model format: "${raw}". Use "<provider> <model>" or "<provider>/<model>".`);
-  }
-  const [provider, ...rest] = trimmed.split(/\s+/);
-  const model = rest.join(" ");
-  if (!provider || !MODEL_RE.test(provider) || !model.trim()) {
-    throw new Error(`Invalid Forge model format: "${raw}". Use "<provider> <model>" or "<provider>/<model>".`);
-  }
-  return [provider, model];
-}
+    const tasksMatch = trimmed.match(/^tasks\s+(.+)$/i);
+    if (tasksMatch) {
+      tasks = tasksMatch[1]?.trim() ?? null;
+      currentField = "tasks";
+      sawField = true;
+      continue;
+    }
 
-function renderForgeModelForShell(raw: string): string {
-  const [provider, model] = parseForgeModelArgs(raw);
-  return `${shellEscape(provider)} ${shellEscape(model)}`;
-}
+    const inputMatch = trimmed.match(/^input tokens\s+([0-9,]+)$/i);
+    if (inputMatch) {
+      inputTokens = parseTokenCount(inputMatch[1] ?? "") ?? 0;
+      currentField = null;
+      sawField = true;
+      continue;
+    }
 
-function parseConversationSummaryFromText(text: string): string | null {
-  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-  if (lines.length === 0) return null;
+    const cachedMatch = trimmed.match(/^cached tokens\s+([0-9,]+)/i);
+    if (cachedMatch) {
+      cachedTokens = parseTokenCount(cachedMatch[1] ?? "") ?? 0;
+      currentField = null;
+      sawField = true;
+      continue;
+    }
 
-  for (const line of lines) {
-    const idx = line.indexOf("=");
-    if (idx > -1 && line.slice(0, idx).trim().toLowerCase() === "summary") {
-      const value = line.slice(idx + 1).trim();
-      if (value) return value;
+    const outputMatch = trimmed.match(/^output tokens\s+([0-9,]+)$/i);
+    if (outputMatch) {
+      outputTokens = parseTokenCount(outputMatch[1] ?? "") ?? 0;
+      currentField = null;
+      sawField = true;
+      continue;
+    }
+
+    if (
+      currentField === "tasks" &&
+      rawLine.startsWith("  ") &&
+      !/^[A-Z][A-Z ]+$/.test(trimmed) &&
+      !/^(?:id|title|tasks|input tokens|cached tokens|output tokens)\b/i.test(trimmed)
+    ) {
+      tasks = [tasks, trimmed].filter(Boolean).join(" ");
     }
   }
 
-  const fencedSummaryIndex = lines.findIndex((line) => /^#+\s*summary/i.test(line));
-  if (fencedSummaryIndex !== -1) {
-    const next = lines[fencedSummaryIndex + 1];
-    return next && !/^#+\s*/.test(next) ? next : null;
-  }
+  if (!sawField) return null;
 
-  return lines[0] ?? null;
+  return {
+    title,
+    tasks,
+    inputTokens,
+    cachedTokens,
+    outputTokens,
+  };
 }
 
-function extractFirstMeaningfulMarkdownLine(markdown: string): string | null {
-  const lines = markdown
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !/^#+\s*/.test(line) && line !== "---");
-  return lines[0] ?? null;
-}
-
-async function fetchForgeConversationSummary(
-  conversationId: string,
-): Promise<{ summary: string | null; summaryIsFallback?: boolean }> {
-  try {
-    const { stdout } = await runForgeCommand(["conversation", "show", "--md", conversationId], {
-      timeout: FORGE_COMMAND_TIMEOUT_MS,
-    });
-    const parsed = extractFirstMeaningfulMarkdownLine(stdout);
-    if (parsed) return { summary: parsed, summaryIsFallback: false };
-  } catch {
-    // fallback
-  }
-
+async function fetchForgeConversationInfo(conversationId: string): Promise<ForgeConversationInfo | null> {
   try {
     const { stdout } = await runForgeCommand(["conversation", "info", conversationId], {
       timeout: FORGE_COMMAND_TIMEOUT_MS,
     });
-    const parsed = parseConversationSummaryFromText(stdout);
-    return { summary: parsed, summaryIsFallback: true };
-  } catch {
-    return { summary: null };
-  }
-}
-
-interface ForgeConversationStats {
-  updatedAt?: Date;
-}
-
-async function fetchForgeConversationStats(conversationId: string): Promise<ForgeConversationStats | null> {
-  try {
-    const { stdout } = await runForgeCommand(["conversation", "stats", "--porcelain", conversationId], {
-      timeout: FORGE_COMMAND_TIMEOUT_MS,
-    });
-    const lines = stdout.split("\n");
-    for (const line of lines) {
-      const normalized = line.trim();
-      if (!normalized || !normalized.includes("=")) continue;
-      const [key, value] = normalized.split("=");
-      if (key.trim().toLowerCase() === "updated_at") {
-        const parsed = Date.parse(value.trim());
-        if (!Number.isNaN(parsed)) {
-          return { updatedAt: new Date(parsed) };
-        }
-      }
-      if (key.trim().toLowerCase() === "updated-at") {
-        const parsed = Date.parse(value.trim());
-        if (!Number.isNaN(parsed)) {
-          return { updatedAt: new Date(parsed) };
-        }
-      }
-    }
+    return parseForgeConversationInfo(stdout);
   } catch {
     return null;
   }
-  return null;
 }
 
-function buildRestoreModelSuffix(model: string | undefined): string {
-  if (!model || typeof model !== "string") return "";
-  return ` --model ${renderForgeModelForShell(model)}`;
+function parseForgeModelReference(raw: unknown): { providerId?: string; modelId: string } | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const slashIdx = trimmed.indexOf("/");
+  if (slashIdx > 0 && slashIdx < trimmed.length - 1) {
+    return {
+      providerId: trimmed.slice(0, slashIdx).trim().toLowerCase(),
+      modelId: trimmed.slice(slashIdx + 1).trim(),
+    };
+  }
+
+  const parts = trimmed.split(/\s+/);
+  if (parts.length > 1) {
+    return {
+      providerId: parts[0]?.trim().toLowerCase(),
+      modelId: parts.slice(1).join(" ").trim(),
+    };
+  }
+
+  return { modelId: trimmed };
 }
+
+function resolveModelsDevProviderCandidates(providerId: string | undefined): string[] {
+  const candidates = new Set<string>();
+  if (providerId) {
+    const normalized = providerId.trim().toLowerCase();
+    const aliasMap: Record<string, string[]> = {
+      alibaba_coding: ["alibaba-coding-plan", "alibaba"],
+      anthropic: ["anthropic"],
+      azure: ["azure"],
+      bedrock: ["amazon-bedrock"],
+      big_model: ["zai"],
+      cerebras: ["cerebras"],
+      codex: ["opencode", "openai"],
+      deepseek: ["deepseek"],
+      forge_services: ["opencode"],
+      github_copilot: ["github-copilot"],
+      google_ai_studio: ["google"],
+      open_router: ["openrouter"],
+      zai_coding: ["zai"],
+    };
+    for (const alias of aliasMap[normalized] ?? []) {
+      candidates.add(alias);
+    }
+    candidates.add(normalized.replaceAll("_", "-"));
+    candidates.add(normalized.replaceAll("_", ""));
+  }
+  candidates.add(MODELS_DEV_DEFAULT_PROVIDER);
+  return [...candidates];
+}
+
+async function fetchModelsDevCatalog(): Promise<ModelsDevCatalog | null> {
+  const now = Date.now();
+  if (modelsDevCache) {
+    if (modelsDevCache.promise) {
+      return await modelsDevCache.promise;
+    }
+    if (now < modelsDevCache.expiresAt && modelsDevCache.data) {
+      return modelsDevCache.data;
+    }
+  }
+
+  const promise = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), MODELS_DEV_FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(MODELS_DEV_API_URL, { signal: controller.signal });
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data && typeof data === "object" ? (data as ModelsDevCatalog) : null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+
+  modelsDevCache = { expiresAt: now + MODELS_DEV_CACHE_TTL_MS, promise };
+  const data = await promise;
+  modelsDevCache = data ? { data, expiresAt: Date.now() + MODELS_DEV_CACHE_TTL_MS } : null;
+  return data;
+}
+
+function findModelsDevPricing(
+  catalog: ModelsDevCatalog,
+  modelId: string,
+  providerHint?: string,
+): ModelsDevPricing | null {
+  for (const providerKey of resolveModelsDevProviderCandidates(providerHint)) {
+    const pricing = catalog[providerKey]?.models?.[modelId]?.cost;
+    if (pricing) return pricing;
+  }
+
+  let fallback: ModelsDevPricing | null = null;
+  for (const provider of Object.values(catalog)) {
+    const pricing = provider.models?.[modelId]?.cost;
+    if (!pricing) continue;
+    if (fallback) return null;
+    fallback = pricing;
+  }
+
+  return fallback;
+}
+
+async function estimateForgeConversationCost(
+  modelRefRaw: unknown,
+  info: ForgeConversationInfo | null,
+): Promise<CostEstimate | undefined> {
+  if (!info) return undefined;
+  if (info.inputTokens === 0 && info.outputTokens === 0) return undefined;
+
+  const modelRef = parseForgeModelReference(modelRefRaw);
+  if (!modelRef) return undefined;
+
+  const catalog = await fetchModelsDevCatalog();
+  if (!catalog) return undefined;
+
+  const pricing = findModelsDevPricing(catalog, modelRef.modelId, modelRef.providerId);
+  if (!pricing || typeof pricing.input !== "number" || typeof pricing.output !== "number") {
+    return undefined;
+  }
+
+  const cachedTokens = Math.max(0, Math.min(info.cachedTokens, info.inputTokens));
+  const uncachedInputTokens = Math.max(0, info.inputTokens - cachedTokens);
+  const cacheReadRate = pricing.cache_read ?? pricing.input;
+  const estimatedCostUsd =
+    (uncachedInputTokens / 1_000_000) * pricing.input +
+    (cachedTokens / 1_000_000) * cacheReadRate +
+    (info.outputTokens / 1_000_000) * pricing.output;
+
+  return {
+    inputTokens: info.inputTokens,
+    outputTokens: info.outputTokens,
+    estimatedCostUsd,
+  };
+}
+
+export function resetModelsDevCache(): void {
+  modelsDevCache = null;
+}
+
+const ANSI_ESCAPE_RE = new RegExp(`${String.fromCharCode(27)}(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])`, "g");
+const FORGE_CONTINUE_PROMPT_RE = /^(?:\?\s*)?Do you want to continue anyway\?\s*[Yy]\/[Nn]:\s*$/;
 
 function classifyForgeTerminalOutput(terminalOutput: string): ActivityState {
-  if (!terminalOutput.trim()) return "idle";
+  const normalizedOutput = terminalOutput.replaceAll(ANSI_ESCAPE_RE, "").trim();
+  if (!normalizedOutput) return "idle";
 
-  const lines = terminalOutput.trim().split("\n");
-  const lastLine = lines[lines.length - 1]?.trim() ?? "";
+  const lines = normalizedOutput.split("\n").map((line) => line.trim());
+  const lastLine = lines[lines.length - 1] ?? "";
+  const lastNonEmptyLine = [...lines].reverse().find(Boolean) ?? "";
 
   if (/^[>$#]\s*$/.test(lastLine)) return "idle";
-  if (/\(Y\)es.*\(N\)o/i.test(lastLine)) return "waiting_input";
-  if (/approval required/i.test(lastLine)) return "waiting_input";
-  if (/Do you want to proceed\?/i.test(lastLine)) return "waiting_input";
-  if (/Allow .+\?/i.test(lastLine)) return "waiting_input";
+  if (FORGE_CONTINUE_PROMPT_RE.test(lastNonEmptyLine)) return "waiting_input";
   if (/error|failed|exception/i.test(lastLine)) return "blocked";
 
   return "active";
 }
 
 export const manifest = {
-  name: "forge",
+  name: pluginName,
   slot: "agent" as const,
-  description: "Agent plugin: Forge",
-  version: "0.1.0",
+  description: packageJson.description,
+  version: packageJson.version,
   displayName: "Forge",
 };
 
 function createForgeAgent(): Agent {
   return {
-    name: "forge",
-    processName: "forge",
+    name: pluginName,
+    processName: pluginName,
     promptDelivery: "post-launch",
 
     getLaunchCommand(config: AgentLaunchConfig): string {
@@ -297,17 +461,6 @@ function createForgeAgent(): Agent {
         activityResult = await readLastActivityEntry(session.workspacePath);
         const activityState = checkActivityLogState(activityResult);
         if (activityState) return activityState;
-      }
-
-      const conversationId = asValidForgeSessionId(session.metadata?.forgeConversationId);
-      if (conversationId) {
-        const stats = await fetchForgeConversationStats(conversationId);
-        if (stats?.updatedAt) {
-          const ageMs = Math.max(0, Date.now() - stats.updatedAt.getTime());
-          if (ageMs <= activeWindowMs) return { state: "active", timestamp: stats.updatedAt };
-          if (ageMs <= threshold) return { state: "ready", timestamp: stats.updatedAt };
-          return { state: "idle", timestamp: stats.updatedAt };
-        }
       }
 
       const fallback = getActivityFallbackState(activityResult, activeWindowMs, threshold);
@@ -376,21 +529,21 @@ function createForgeAgent(): Agent {
     async getSessionInfo(session: Session): Promise<AgentSessionInfo | null> {
       const conversationId = asValidForgeSessionId(session.metadata?.forgeConversationId);
       if (!conversationId) return null;
-      const { summary, summaryIsFallback } = await fetchForgeConversationSummary(conversationId);
+      const conversationInfo = await fetchForgeConversationInfo(conversationId);
+      const summary = conversationInfo?.title ?? null;
+      const cost = await estimateForgeConversationCost(session.metadata?.forgeModel, conversationInfo);
       return {
         agentSessionId: conversationId,
         summary: summary ?? null,
-        summaryIsFallback: summary ? summaryIsFallback : undefined,
+        summaryIsFallback: summary ? false : undefined,
+        ...(cost ? { cost } : {}),
       };
     },
 
-    async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
+    async getRestoreCommand(session: Session, _project: ProjectConfig): Promise<string | null> {
       const conversationId = asValidForgeSessionId(session.metadata?.forgeConversationId);
       if (!conversationId) return null;
-      const sessionModel = session.metadata?.forgeModel;
-      const projectModel = (project.agentConfig as ForgeAgentConfig | undefined)?.model;
-      const modelSuffix = buildRestoreModelSuffix(sessionModel ?? projectModel);
-      return `forge --conversation-id ${shellEscape(conversationId)}${modelSuffix}`;
+      return `forge --conversation-id ${shellEscape(conversationId)}`;
     },
 
     async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
@@ -400,25 +553,6 @@ function createForgeAgent(): Agent {
     async postLaunchSetup(session: Session): Promise<void> {
       if (!session.workspacePath) return;
       await setupPathWrapperWorkspace(session.workspacePath);
-
-      if (!session.metadata) return;
-      const model = session.metadata["forgeModel"]?.trim();
-      if (!model) return;
-
-      let provider: string;
-      let configuredModel: string;
-      try {
-        [provider, configuredModel] = parseForgeModelArgs(model);
-      } catch {
-        throw new Error(
-          `Invalid Forge model format: "${model}". Use "<provider> <model>" or "<provider>/<model>".`,
-        );
-      }
-
-      await runForgeCommand(["config", "set", "model", provider, configuredModel], {
-        cwd: session.workspacePath,
-        timeout: FORGE_COMMAND_TIMEOUT_MS,
-      });
     },
   };
 }

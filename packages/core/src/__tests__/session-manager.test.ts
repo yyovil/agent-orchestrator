@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { createSessionManager } from "../session-manager.js";
 import { writeMetadata } from "../metadata.js";
 import type { OrchestratorConfig, PluginRegistry, Agent } from "../types.js";
 import { setupTestContext, teardownTestContext, makeHandle, type TestContext } from "./test-utils.js";
 
+const { execFileMock, spawnMock } = vi.hoisted(() => ({
+  execFileMock: vi.fn() as any,
+  spawnMock: vi.fn(),
+}));
+
 // Mock child_process module with custom promisify
 vi.mock("node:child_process", () => {
-  const execFileMock = vi.fn() as any;
   // Implement custom promisify to return { stdout, stderr } objects
   execFileMock[Symbol.for("nodejs.util.promisify.custom")] = (...args: any[]) => {
     return new Promise((resolve, reject) => {
@@ -21,6 +27,42 @@ vi.mock("node:child_process", () => {
   };
   return {
     execFile: execFileMock,
+    spawn: (...args: any[]) => {
+      const child = new EventEmitter() as EventEmitter & {
+        stdout: PassThrough;
+        stderr: PassThrough;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.kill = vi.fn();
+
+      const result = spawnMock(...args);
+      if (result && typeof result.then === "function") {
+        result.then(
+          (value: { stdout: string; stderr: string }) => {
+            queueMicrotask(() => {
+              if (value.stdout) child.stdout.write(value.stdout);
+              child.stdout.end();
+              if (value.stderr) child.stderr.write(value.stderr);
+              child.stderr.end();
+              child.emit("close", 0, null);
+            });
+          },
+          (err: Error & { stdout?: string; stderr?: string; code?: number; signal?: NodeJS.Signals }) => {
+            queueMicrotask(() => {
+              if (err.stdout) child.stdout.write(err.stdout);
+              child.stdout.end();
+              if (err.stderr) child.stderr.write(err.stderr);
+              child.stderr.end();
+              child.emit("close", err.code ?? 1, err.signal ?? null);
+            });
+          },
+        );
+      }
+
+      return child;
+    },
   };
 });
 
@@ -62,6 +104,11 @@ afterEach(() => {
   teardownTestContext(ctx);
   vi.restoreAllMocks();
   vi.useRealTimers();
+});
+
+beforeEach(() => {
+  execFileMock.mockReset();
+  spawnMock.mockReset();
 });
 
 describe("deleteSession retry loop", () => {
