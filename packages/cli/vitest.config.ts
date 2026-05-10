@@ -56,6 +56,10 @@ export default defineConfig({
         replacement: resolve(__dirname, "../plugins/agent-forge/src/index.ts"),
       },
       {
+        find: "@aoagents/ao-plugin-agent-goose",
+        replacement: resolve(__dirname, "../plugins/agent-goose/src/index.ts"),
+      },
+      {
         find: "@aoagents/ao-plugin-scm-github",
         replacement: resolve(__dirname, "../plugins/scm-github/src/index.ts"),
       },

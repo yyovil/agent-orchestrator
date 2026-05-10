@@ -112,6 +112,7 @@ export function dashboardProductionArtifactsAreStale(webDir: string): boolean {
     resolve(workspaceRoot, "packages", "plugins", "agent-claude-code", "src"),
     resolve(workspaceRoot, "packages", "plugins", "agent-cursor", "src"),
     resolve(workspaceRoot, "packages", "plugins", "agent-forge", "src"),
+    resolve(workspaceRoot, "packages", "plugins", "agent-goose", "src"),
     resolve(workspaceRoot, "packages", "plugins", "agent-opencode", "src"),
     resolve(workspaceRoot, "packages", "plugins", "runtime-tmux", "src"),
     resolve(workspaceRoot, "packages", "plugins", "scm-github", "src"),

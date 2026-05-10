@@ -39,6 +39,10 @@ export default defineConfig({
         replacement: resolve(__dirname, "../plugins/agent-forge/src/index.ts"),
       },
       {
+        find: "@aoagents/ao-plugin-agent-goose",
+        replacement: resolve(__dirname, "../plugins/agent-goose/src/index.ts"),
+      },
+      {
         find: "@aoagents/ao-plugin-agent-opencode",
         replacement: resolve(__dirname, "../plugins/agent-opencode/src/index.ts"),
       },

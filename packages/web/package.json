@@ -31,6 +31,7 @@
     "@aoagents/ao-plugin-agent-claude-code": "workspace:*",
     "@aoagents/ao-plugin-agent-cursor": "workspace:*",
     "@aoagents/ao-plugin-agent-forge": "workspace:*",
+    "@aoagents/ao-plugin-agent-goose": "workspace:*",
     "@aoagents/ao-plugin-agent-opencode": "workspace:*",
     "@aoagents/ao-plugin-runtime-tmux": "workspace:*",
     "@aoagents/ao-plugin-scm-github": "workspace:*",
