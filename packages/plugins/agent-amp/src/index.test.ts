@@ -197,7 +197,9 @@ describe("getLaunchCommand", () => {
       }),
     );
     expect(cmd).toContain("node -e ");
-    expect(cmd).toContain("'Do work' | amp");
+    expect(cmd).toContain('"args":[]');
+    expect(cmd).toContain('"promptParts":[{"type":"text","value":"Do work"}]');
+    expect(cmd).not.toContain(" | ");
     expect(cmd).not.toContain("-x");
     expect(cmd).not.toContain("--execute");
   });
@@ -209,7 +211,10 @@ describe("getLaunchCommand", () => {
         systemPrompt: "You are helpful",
       }),
     );
-    expect(cmd).toContain("'You are helpful' 'Do work' | amp");
+    expect(cmd).toContain(
+      '"promptParts":[{"type":"text","value":"You are helpful"},{"type":"text","value":"Do work"}]',
+    );
+    expect(cmd).not.toContain(" | ");
   });
 
   it("uses system prompt file when provided", () => {
@@ -220,7 +225,25 @@ describe("getLaunchCommand", () => {
         systemPromptFile: "/tmp/prompt.md",
       }),
     );
-    expect(cmd).toContain("'--file' '/tmp/prompt.md' 'Do work' | amp");
+    expect(cmd).toContain(
+      '"promptParts":[{"type":"file","value":"/tmp/prompt.md"},{"type":"text","value":"Do work"}]',
+    );
+    expect(cmd).not.toContain(" | ");
+  });
+
+  it("uses Node streams to deliver prompts when continuing a configured thread", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({
+        prompt: "Continue work",
+        projectConfig: {
+          ...makeLaunchConfig().projectConfig,
+          agentConfig: { ampThreadId: VALID_AMP_THREAD_ID },
+        },
+      }),
+    );
+    expect(cmd).toContain('"args":["threads","continue","T-amp-thread-123"]');
+    expect(cmd).toContain('"promptParts":[{"type":"text","value":"Continue work"}]');
+    expect(cmd).not.toContain(" | ");
   });
 });
 

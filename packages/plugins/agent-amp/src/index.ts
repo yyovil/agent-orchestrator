@@ -42,6 +42,11 @@ interface AmpAgentConfig extends AgentSpecificConfig {
   ampThreadId?: unknown;
 }
 
+interface AmpPromptPart {
+  type: "text" | "file";
+  value: string;
+}
+
 function asAmpThreadReference(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -54,40 +59,46 @@ function asAmpThreadReference(value: unknown): string | undefined {
   return trimmed;
 }
 
-function buildAmpPromptInputCommand(config: AgentLaunchConfig): string | null {
-  const args: string[] = [];
+const AMP_PROMPT_LAUNCHER_SCRIPT = [
+  'const {spawn}=require("node:child_process");',
+  'const fs=require("node:fs");',
+  "const payload=JSON.parse(process.argv[1]);",
+  "const promptParts=Array.isArray(payload.promptParts)?payload.promptParts:[];",
+  "const input=promptParts.map((part)=>part.type==='file'?fs.readFileSync(part.value,'utf8'):String(part.value??'')).filter(Boolean).join('\\n\\n');",
+  "const args=Array.isArray(payload.args)?payload.args:[];",
+  "const child=spawn('amp',args,{stdio:['pipe','inherit','inherit'],shell:process.platform==='win32',windowsHide:true});",
+  "child.on('error',(err)=>{console.error(err?.message||String(err));process.exit(1);});",
+  "child.on('exit',(code)=>process.exit(code??0));",
+  "child.stdin.end(input);",
+].join("");
+
+function buildAmpPromptParts(config: AgentLaunchConfig): AmpPromptPart[] {
+  const promptParts: AmpPromptPart[] = [];
   if (config.systemPromptFile) {
-    args.push("--file", config.systemPromptFile);
+    promptParts.push({ type: "file", value: config.systemPromptFile });
   } else if (config.systemPrompt) {
-    args.push(config.systemPrompt);
+    promptParts.push({ type: "text", value: config.systemPrompt });
   }
 
   if (config.prompt) {
-    args.push(config.prompt);
+    promptParts.push({ type: "text", value: config.prompt });
   }
 
-  if (args.length === 0) return null;
-
-  const script = [
-    'const fs=require("node:fs");',
-    "const parts=[];",
-    "for(let i=1;i<process.argv.length;i+=1){",
-    'if(process.argv[i]==="--file"){',
-    'parts.push(fs.readFileSync(process.argv[i+1],"utf8"));',
-    "i+=1;",
-    "}else{",
-    "parts.push(process.argv[i]);",
-    "}",
-    "}",
-    'process.stdout.write(parts.filter(Boolean).join("\\n\\n"));',
-  ].join("");
-  return `node -e ${[script, ...args].map((arg) => shellEscape(arg)).join(" ")}`;
+  return promptParts;
 }
 
-function buildAmpLaunchCommand(baseCommand: string, config: AgentLaunchConfig): string {
-  const promptInputCommand = buildAmpPromptInputCommand(config);
-  if (!promptInputCommand) return baseCommand;
-  return `${promptInputCommand} | ${baseCommand}`;
+function buildAmpLaunchCommand(
+  baseCommand: string,
+  args: string[],
+  config: AgentLaunchConfig,
+): string {
+  const promptParts = buildAmpPromptParts(config);
+  if (promptParts.length === 0) {
+    return baseCommand;
+  }
+
+  const payload = JSON.stringify({ args, promptParts });
+  return `node -e ${shellEscape(AMP_PROMPT_LAUNCHER_SCRIPT)} ${shellEscape(payload)}`;
 }
 
 const ANSI_ESCAPE_RE = new RegExp(
@@ -132,9 +143,13 @@ function createAmpAgent(): Agent {
         (config.projectConfig.agentConfig as AmpAgentConfig | undefined)?.ampThreadId,
       );
       if (!threadId) {
-        return buildAmpLaunchCommand("amp", config);
+        return buildAmpLaunchCommand("amp", [], config);
       }
-      return buildAmpLaunchCommand(`amp threads continue ${shellEscape(threadId)}`, config);
+      return buildAmpLaunchCommand(
+        `amp threads continue ${shellEscape(threadId)}`,
+        ["threads", "continue", threadId],
+        config,
+      );
     },
 
     getEnvironment(config: AgentLaunchConfig): Record<string, string> {
