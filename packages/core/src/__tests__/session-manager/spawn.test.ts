@@ -1113,6 +1113,24 @@ describe("spawn", () => {
     expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("sends prompt after launch when agent requests post-launch delivery", async () => {
+    mockAgent = { ...mockAgent, promptDelivery: "post-launch" };
+    vi.mocked(mockRegistry.get).mockImplementation((slot: string) => {
+      if (slot === "runtime") return mockRuntime;
+      if (slot === "agent") return mockAgent;
+      if (slot === "workspace") return mockWorkspace;
+      return undefined;
+    });
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
+
+    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+      makeHandle("rt-1"),
+      expect.stringContaining("Fix the bug"),
+    );
+  }, 10_000);
+
   it("writes worker system prompt to file and passes only explicit task prompt to agent", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
