@@ -11,7 +11,15 @@
  * Reference: scripts/claude-ao-session, scripts/send-to-session
  */
 
-import { statSync, existsSync, writeFileSync, mkdirSync, utimesSync, unlinkSync } from "node:fs";
+import {
+  statSync,
+  existsSync,
+  writeFileSync,
+  mkdirSync,
+  utimesSync,
+  unlinkSync,
+  readFileSync,
+} from "node:fs";
 import { recordActivityEvent } from "./activity-events.js";
 import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
@@ -300,17 +308,31 @@ async function deliverPostLaunchPrompt(options: {
   runtime: Runtime;
   handle: RuntimeHandle;
   prompt: string | undefined;
+  systemPromptFile?: string;
   sessionId: SessionId;
+  baseDelayMs?: number;
 }): Promise<boolean | null> {
-  if (options.agent.promptDelivery !== "post-launch" || !options.prompt) {
+  if (options.agent.promptDelivery !== "post-launch") {
     return null;
   }
 
+  const promptParts: string[] = [];
+  if (options.systemPromptFile) {
+    promptParts.push(readFileSync(options.systemPromptFile, "utf8").trim());
+  }
+  if (options.prompt?.trim()) {
+    promptParts.push(options.prompt.trim());
+  }
+
+  const prompt = promptParts.filter(Boolean).join("\n\n---\n\n");
+  if (!prompt) return null;
+
+  const baseDelayMs = options.baseDelayMs ?? POST_LAUNCH_PROMPT_BASE_DELAY_MS;
   let lastError: Error | undefined;
   for (let attempt = 1; attempt <= POST_LAUNCH_PROMPT_ATTEMPTS; attempt++) {
     try {
-      await sleep(POST_LAUNCH_PROMPT_BASE_DELAY_MS * attempt);
-      await options.runtime.sendMessage(options.handle, options.prompt);
+      await sleep(baseDelayMs * attempt);
+      await options.runtime.sendMessage(options.handle, prompt);
       return true;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
@@ -405,6 +427,7 @@ function metadataToSession(
 export interface SessionManagerDeps {
   config: OrchestratorConfig;
   registry: PluginRegistry;
+  postLaunchPromptDelayMs?: number;
 }
 
 /** Create a SessionManager instance. */
@@ -1557,7 +1580,9 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         runtime: plugins.runtime,
         handle,
         prompt: agentLaunchConfig.prompt,
+        systemPromptFile: agentLaunchConfig.systemPromptFile,
         sessionId,
+        baseDelayMs: deps.postLaunchPromptDelayMs,
       });
       if (promptDelivered !== null) {
         session.metadata["promptDelivered"] = String(promptDelivered);
@@ -2042,8 +2067,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         agent: plugins.agent,
         runtime: plugins.runtime,
         handle,
-        prompt: orchestratorConfig.systemPrompt,
+        prompt: undefined,
+        systemPromptFile,
         sessionId,
+        baseDelayMs: deps.postLaunchPromptDelayMs,
       });
       if (promptDelivered !== null) {
         session.metadata["promptDelivered"] = String(promptDelivered);

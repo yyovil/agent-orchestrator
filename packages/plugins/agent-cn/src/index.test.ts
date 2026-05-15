@@ -21,13 +21,11 @@ const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
 const {
   mockReadLastActivityEntry,
   mockRecordTerminalActivity,
-  mockSetupPathWrapperWorkspace,
   mockExecFileAsync,
   mockWhichSync,
 } = vi.hoisted(() => ({
   mockReadLastActivityEntry: vi.fn().mockResolvedValue(null),
   mockRecordTerminalActivity: vi.fn().mockResolvedValue(undefined),
-  mockSetupPathWrapperWorkspace: vi.fn().mockResolvedValue(undefined),
   mockExecFileAsync: vi.fn(),
   mockWhichSync: vi.fn(),
 }));
@@ -38,7 +36,6 @@ vi.mock("@aoagents/ao-core", async (importOriginal) => {
     ...actual,
     readLastActivityEntry: mockReadLastActivityEntry,
     recordTerminalActivity: mockRecordTerminalActivity,
-    setupPathWrapperWorkspace: mockSetupPathWrapperWorkspace,
   };
 });
 
@@ -223,8 +220,8 @@ describe("getEnvironment", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env["AO_SESSION_ID"]).toBe("sess-1");
     expect(env["AO_ISSUE_ID"]).toBeUndefined();
-    expect(env["PATH"]).toContain(".ao");
-    expect(env["GH_PATH"]).toBeTruthy();
+    expect(env["PATH"]).toBeUndefined();
+    expect(env["GH_PATH"]).toBeUndefined();
     expect(env["CONTINUE_CLI_ENABLE_TELEMETRY"]).toBe("0");
     expect(env["CONTINUE_METRICS_ENABLED"]).toBe("0");
     expect(env["CONTINUE_ALLOW_ANONYMOUS_TELEMETRY"]).toBe("0");
@@ -337,6 +334,14 @@ describe("recordActivity", () => {
     expect(classify?.("Thinking about your request")).toBe("active");
   });
 
+  it("keeps normal progress lines that mention errors active", async () => {
+    await agent.recordActivity?.(makeSession(), "Fixing error in authentication module");
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
+    expect(classify?.("Fixing error in authentication module")).toBe("active");
+  });
+
   it("skips recording when workspacePath is missing", async () => {
     await agent.recordActivity?.(makeSession({ workspacePath: null }), "still running");
     expect(mockRecordTerminalActivity).not.toHaveBeenCalled();
@@ -414,19 +419,5 @@ describe("session and restore", () => {
       },
     );
     expect(cmd).toBeNull();
-  });
-});
-
-describe("workspace hooks", () => {
-  const agent = create();
-
-  it("sets up path wrappers for workspace hooks", async () => {
-    await agent.setupWorkspaceHooks?.("/workspace/test", { dataDir: "/tmp/sessions" });
-    expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
-  });
-
-  it("sets up path wrappers after launch when workspacePath exists", async () => {
-    await agent.postLaunchSetup?.(makeSession({ workspacePath: "/workspace/test" }));
-    expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
   });
 });
