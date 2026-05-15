@@ -1462,8 +1462,39 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       // final form. Dismiss the stack so nothing below can trigger a rollback.
       cleanupStack.dismiss();
 
-      // Prompt is delivered inline via the agent's launch command (positional argument).
-      // No post-launch polling needed — the prompt is part of process invocation.
+      // Send initial prompts post-launch for agents that must stay interactive.
+      // Prompt delivery failure should not destroy the session; users can retry with `ao send`.
+      if (plugins.agent.promptDelivery === "post-launch" && agentLaunchConfig.prompt) {
+        const maxRetries = 3;
+        const baseDelayMs = 3_000;
+        let promptDelivered = false;
+        let lastError: Error | undefined;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            await sleep(baseDelayMs * attempt);
+            await plugins.runtime.sendMessage(handle, agentLaunchConfig.prompt);
+            promptDelivered = true;
+            break;
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.error(
+              `[session-manager] Prompt delivery attempt ${attempt}/${maxRetries} failed: ${lastError.message}`,
+            );
+          }
+        }
+
+        if (!promptDelivered) {
+          console.error(
+            `[session-manager] Failed to deliver prompt to session ${sessionId} after ${maxRetries} attempts. ` +
+              `User can retry with 'ao send'. Last error: ${lastError?.message}`,
+          );
+        }
+
+        session.metadata["promptDelivered"] = String(promptDelivered);
+        updateMetadata(sessionsDir, sessionId, session.metadata);
+      }
+
       recordActivityEvent({
         projectId: spawnConfig.projectId,
         sessionId,
