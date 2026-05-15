@@ -4,7 +4,11 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const packageJson = require("../package.json") as { name: string; version: string; description: string };
+const packageJson = require("../package.json") as {
+  name: string;
+  version: string;
+  description: string;
+};
 const PACKAGE_NAME_PREFIX = "@aoagents/ao-plugin-agent-";
 const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
   ? packageJson.name.slice(PACKAGE_NAME_PREFIX.length)
@@ -16,12 +20,14 @@ const {
   mockSetupPathWrapperWorkspace,
   mockExecFileAsync,
   mockWhichSync,
+  mockIsWindows,
 } = vi.hoisted(() => ({
   mockReadLastActivityEntry: vi.fn().mockResolvedValue(null),
   mockRecordTerminalActivity: vi.fn().mockResolvedValue(undefined),
   mockSetupPathWrapperWorkspace: vi.fn().mockResolvedValue(undefined),
   mockExecFileAsync: vi.fn(),
   mockWhichSync: vi.fn(),
+  mockIsWindows: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("@aoagents/ao-core", async (importOriginal) => {
@@ -31,6 +37,7 @@ vi.mock("@aoagents/ao-core", async (importOriginal) => {
     readLastActivityEntry: mockReadLastActivityEntry,
     recordTerminalActivity: mockRecordTerminalActivity,
     setupPathWrapperWorkspace: mockSetupPathWrapperWorkspace,
+    isWindows: mockIsWindows,
   };
 });
 
@@ -126,6 +133,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockWhichSync.mockReset();
   mockExecFileAsync.mockReset();
+  mockIsWindows.mockReturnValue(false);
 });
 
 describe("manifest", () => {
@@ -141,11 +149,11 @@ describe("manifest", () => {
 });
 
 describe("create", () => {
-  it("uses codebuff as process name and post-launch prompt mode", () => {
+  it("uses codebuff as process name without a prompt-delivery side channel", () => {
     const agent = create();
     expect(agent.name).toBe(pluginName);
     expect(agent.processName).toBe(pluginName);
-    expect(agent.promptDelivery).toBe("post-launch");
+    expect((agent as { promptDelivery?: unknown }).promptDelivery).toBeUndefined();
   });
 
   it("exports plugin module shape", () => {
@@ -173,9 +181,37 @@ describe("detect", () => {
 describe("getLaunchCommand", () => {
   const agent = create();
 
-  it("uses interactive launch without session metadata", () => {
+  it("uses interactive launch without session metadata or prompt", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
     expect(cmd).toBe("codebuff");
+  });
+
+  it("passes the initial prompt as Codebuff's documented positional prompt", () => {
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "Fix the bug" }));
+    expect(cmd).toBe("codebuff 'Fix the bug'");
+  });
+
+  it("combines an inline system prompt and task prompt into Codebuff's positional prompt", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({ prompt: "Fix the bug", systemPrompt: "Follow AO instructions" }),
+    );
+    expect(cmd).toBe("codebuff 'Follow AO instructions\n\nFix the bug'");
+  });
+
+  it("combines the system prompt file and task prompt into Codebuff's positional prompt", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({ prompt: "Fix the bug", systemPromptFile: "/tmp/orchestrator prompt.md" }),
+    );
+    expect(cmd).toBe(
+      `codebuff "$(cat '/tmp/orchestrator prompt.md'; printf '\n\n'; printf %s 'Fix the bug')"`,
+    );
+  });
+
+  it("passes the system prompt file as the positional prompt when no task prompt is present", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({ systemPromptFile: "/tmp/orchestrator prompt.md" }),
+    );
+    expect(cmd).toBe(`codebuff "$(cat '/tmp/orchestrator prompt.md')"`);
   });
 
   it("uses --continue when configured with a conversation id", () => {
@@ -191,7 +227,21 @@ describe("getLaunchCommand", () => {
     expect(cmd).toBe(`codebuff --continue '${CODEBUFF_CONVERSATION_ID}'`);
   });
 
-  it("does not include prompt flags in launch command", () => {
+  it("uses --continue and still delivers the prompt when both are configured", () => {
+    const baseConfig = makeLaunchConfig();
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({
+        prompt: "Continue this task",
+        projectConfig: {
+          ...baseConfig.projectConfig,
+          agentConfig: { codebuffConversationId: CODEBUFF_CONVERSATION_ID },
+        },
+      }),
+    );
+    expect(cmd).toBe(`codebuff --continue '${CODEBUFF_CONVERSATION_ID}' 'Continue this task'`);
+  });
+
+  it("does not include unsupported prompt flags in launch command", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({
         prompt: "Do work",
@@ -199,22 +249,21 @@ describe("getLaunchCommand", () => {
         systemPromptFile: "/tmp/prompt.md",
       }),
     );
-    expect(cmd).toBe("codebuff");
+    expect(cmd).toBe(`codebuff "$(cat '/tmp/prompt.md'; printf '\n\n'; printf %s 'Do work')"`);
     expect(cmd).not.toContain("-p");
     expect(cmd).not.toContain("--prompt");
-    expect(cmd).not.toContain("Do work");
   });
 });
 
 describe("getEnvironment", () => {
   const agent = create();
 
-  it("writes AO session keys and path helpers", () => {
+  it("writes only AO session keys", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env["AO_SESSION_ID"]).toBe("sess-1");
     expect(env["AO_ISSUE_ID"]).toBeUndefined();
-    expect(env["PATH"]).toContain(".ao/bin");
-    expect(env["GH_PATH"]).toContain("/gh");
+    expect(env["PATH"]).toBeUndefined();
+    expect(env["GH_PATH"]).toBeUndefined();
   });
 
   it("includes AO_ISSUE_ID when provided", () => {
@@ -225,6 +274,13 @@ describe("getEnvironment", () => {
 
 describe("isProcessRunning", () => {
   const agent = create();
+
+  it("short-circuits tmux liveness checks on Windows", async () => {
+    mockIsWindows.mockReturnValue(true);
+
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
+    expect(mockExecFileAsync).not.toHaveBeenCalled();
+  });
 
   it("returns true when codebuff is on a tmux pane", async () => {
     mockExecFileAsync.mockImplementation((cmd: string) => {
@@ -287,30 +343,41 @@ describe("recordActivity", () => {
       "foo\n> ",
       expect.any(Function),
     );
-    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as ((output: string) => string) | undefined;
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
     expect(classify?.("foo\n> ")).toBe("idle");
   });
 
   it("classifies Codebuff input prompts as waiting_input", async () => {
     await agent.recordActivity?.(makeSession(), "Enter a coding task or / for commands");
-    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as ((output: string) => string) | undefined;
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
     expect(classify?.("Enter a coding task or / for commands")).toBe("waiting_input");
   });
 
   it("classifies confirmation prompts as waiting_input", async () => {
     await agent.recordActivity?.(makeSession(), "Run command npm test? [y/n]:");
-    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as ((output: string) => string) | undefined;
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
     expect(classify?.("Run command npm test? [y/n]:")).toBe("waiting_input");
   });
 
   it("classifies error output as blocked", async () => {
     await agent.recordActivity?.(makeSession(), "Unhandled exception");
-    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as ((output: string) => string) | undefined;
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
     expect(classify?.("Unhandled exception")).toBe("blocked");
   });
 
   it("skips recording when workspacePath is missing", async () => {
-    await agent.recordActivity?.(makeSession({ workspacePath: null }), "Enter a coding task or / for commands");
+    await agent.recordActivity?.(
+      makeSession({ workspacePath: null }),
+      "Enter a coding task or / for commands",
+    );
     expect(mockRecordTerminalActivity).not.toHaveBeenCalled();
   });
 });
@@ -326,7 +393,9 @@ describe("getActivityState", () => {
   it("falls back to activity JSONL state", async () => {
     mockReadLastActivityEntry.mockResolvedValue(makeActivityResult("waiting_input", new Date()));
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const state = await agent.getActivityState(makeSession({ runtimeHandle: makeProcessHandle(101) }));
+    const state = await agent.getActivityState(
+      makeSession({ runtimeHandle: makeProcessHandle(101) }),
+    );
     expect(state?.state).toBe("waiting_input");
     killSpy.mockRestore();
   });
@@ -335,7 +404,9 @@ describe("getActivityState", () => {
     const activityAt = new Date();
     mockReadLastActivityEntry.mockResolvedValue(makeActivityResult("blocked", activityAt));
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const state = await agent.getActivityState(makeSession({ runtimeHandle: makeProcessHandle(101) }));
+    const state = await agent.getActivityState(
+      makeSession({ runtimeHandle: makeProcessHandle(101) }),
+    );
     expect(state?.state).toBe("blocked");
     expect(state?.timestamp?.toISOString()).toBe(activityAt.toISOString());
     killSpy.mockRestore();
@@ -345,7 +416,9 @@ describe("getActivityState", () => {
     const activityAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
     mockReadLastActivityEntry.mockResolvedValue(makeActivityResult("active", activityAt));
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const state = await agent.getActivityState(makeSession({ runtimeHandle: makeProcessHandle(101) }));
+    const state = await agent.getActivityState(
+      makeSession({ runtimeHandle: makeProcessHandle(101) }),
+    );
     expect(state?.state).toBe("idle");
     expect(state?.timestamp?.toISOString()).toBe(activityAt.toISOString());
     killSpy.mockRestore();
@@ -354,7 +427,9 @@ describe("getActivityState", () => {
   it("returns null when no activity data is available", async () => {
     mockReadLastActivityEntry.mockResolvedValue(null);
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const state = await agent.getActivityState(makeSession({ runtimeHandle: makeProcessHandle(101) }));
+    const state = await agent.getActivityState(
+      makeSession({ runtimeHandle: makeProcessHandle(101) }),
+    );
     expect(state).toBeNull();
     killSpy.mockRestore();
   });
@@ -413,7 +488,9 @@ describe("workspace setup", () => {
   });
 
   it("skips post-launch setup when workspacePath is missing", async () => {
-    await expect(agent.postLaunchSetup?.(makeSession({ workspacePath: null }))).resolves.toBeUndefined();
+    await expect(
+      agent.postLaunchSetup?.(makeSession({ workspacePath: null })),
+    ).resolves.toBeUndefined();
     expect(mockSetupPathWrapperWorkspace).not.toHaveBeenCalled();
   });
 });

@@ -1,10 +1,9 @@
 import {
   DEFAULT_ACTIVE_WINDOW_MS,
   DEFAULT_READY_THRESHOLD_MS,
-  PREFERRED_GH_PATH,
-  buildAgentPath,
   checkActivityLogState,
   getActivityFallbackState,
+  isWindows,
   readLastActivityEntry,
   recordTerminalActivity,
   setupPathWrapperWorkspace,
@@ -26,7 +25,11 @@ import { promisify } from "node:util";
 import which from "which";
 
 const require = createRequire(import.meta.url);
-const packageJson = require("../package.json") as { name: string; version: string; description: string };
+const packageJson = require("../package.json") as {
+  name: string;
+  version: string;
+  description: string;
+};
 const PACKAGE_NAME_PREFIX = "@aoagents/ao-plugin-agent-";
 const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
   ? packageJson.name.slice(PACKAGE_NAME_PREFIX.length)
@@ -35,11 +38,14 @@ const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
 const execFileAsync = promisify(execFile);
 const CODEBUFF_EXECUTABLE = "codebuff";
 const CODEBUFF_SESSION_METADATA_KEY = "codebuffConversationId";
-const ANSI_ESCAPE_RE = new RegExp(`${String.fromCharCode(27)}(?:[@-Z\\-_]|\\[[0-?]*[ -/]*[@-~])`, "g");
-type CodebuffAgent = Agent & { promptDelivery: "post-launch" };
+const ANSI_ESCAPE_RE = new RegExp(
+  `${String.fromCharCode(27)}(?:[@-Z\\-_]|\\[[0-?]*[ -/]*[@-~])`,
+  "g",
+);
 
 const CODEBUFF_INPUT_PROMPT_RE = /enter a coding task or \/ for commands/i;
-const CODEBUFF_CONFIRM_PROMPT_RE = /(?:\?|\b)(?:allow|approve|confirm|continue|proceed|run|execute)\b.*(?:\[[YyNn][/][YyNn]\]|\([YyNn][/][YyNn]\)|[Yy]\/[Nn]|[Nn]\/[Yy]|yes\/no|y\/n)\s*:?\s*$/i;
+const CODEBUFF_CONFIRM_PROMPT_RE =
+  /(?:\?|\b)(?:allow|approve|confirm|continue|proceed|run|execute)\b.*(?:\[[YyNn][/][YyNn]\]|\([YyNn][/][YyNn]\)|[Yy]\/[Nn]|[Nn]\/[Yy]|yes\/no|y\/n)\s*:?\s*$/i;
 
 function getCodebuffConversationId(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -48,11 +54,39 @@ function getCodebuffConversationId(raw: unknown): string | null {
 }
 
 function getConfiguredConversationId(config: AgentLaunchConfig): string | null {
-  return getCodebuffConversationId(config.projectConfig.agentConfig?.[CODEBUFF_SESSION_METADATA_KEY]);
+  return getCodebuffConversationId(
+    config.projectConfig.agentConfig?.[CODEBUFF_SESSION_METADATA_KEY],
+  );
 }
 
 function getSessionConversationId(session: Session): string | null {
   return getCodebuffConversationId(session.metadata?.[CODEBUFF_SESSION_METADATA_KEY]);
+}
+
+function buildInitialPromptArgument(config: AgentLaunchConfig): string | null {
+  const prompt =
+    typeof config.prompt === "string" && config.prompt.trim().length > 0 ? config.prompt : null;
+  const systemPrompt =
+    typeof config.systemPrompt === "string" && config.systemPrompt.trim().length > 0
+      ? config.systemPrompt
+      : null;
+  const systemPromptFile =
+    typeof config.systemPromptFile === "string" && config.systemPromptFile.trim().length > 0
+      ? config.systemPromptFile
+      : null;
+
+  if (systemPromptFile && prompt) {
+    return `"$(cat ${shellEscape(systemPromptFile)}; printf '\n\n'; printf %s ${shellEscape(prompt)})"`;
+  }
+  if (systemPromptFile) {
+    return `"$(cat ${shellEscape(systemPromptFile)})"`;
+  }
+
+  const promptParts = [systemPrompt, prompt].filter((part): part is string => Boolean(part));
+  if (promptParts.length > 0) {
+    return shellEscape(promptParts.join("\n\n"));
+  }
+  return null;
 }
 
 function classifyCodebuffTerminalOutput(terminalOutput: string): ActivityState {
@@ -79,18 +113,23 @@ export const manifest = {
   displayName: "Codebuff",
 };
 
-function createCodebuffAgent(): CodebuffAgent {
+function createCodebuffAgent(): Agent {
   return {
     name: pluginName,
     processName: pluginName,
-    promptDelivery: "post-launch",
-
     getLaunchCommand(config: AgentLaunchConfig): string {
+      const args: string[] = [];
       const conversationId = getConfiguredConversationId(config);
-      if (!conversationId) {
-        return CODEBUFF_EXECUTABLE;
+      if (conversationId) {
+        args.push("--continue", shellEscape(conversationId));
       }
-      return `${CODEBUFF_EXECUTABLE} --continue ${shellEscape(conversationId)}`;
+
+      const promptArg = buildInitialPromptArgument(config);
+      if (promptArg) {
+        args.push(promptArg);
+      }
+
+      return args.length > 0 ? `${CODEBUFF_EXECUTABLE} ${args.join(" ")}` : CODEBUFF_EXECUTABLE;
     },
 
     getEnvironment(config: AgentLaunchConfig): Record<string, string> {
@@ -99,9 +138,6 @@ function createCodebuffAgent(): CodebuffAgent {
       if (config.issueId) {
         env["AO_ISSUE_ID"] = config.issueId;
       }
-
-      env["PATH"] = buildAgentPath(process.env["PATH"]);
-      env["GH_PATH"] = PREFERRED_GH_PATH;
 
       return env;
     },
@@ -138,13 +174,15 @@ function createCodebuffAgent(): CodebuffAgent {
     async recordActivity(session: Session, terminalOutput: string): Promise<void> {
       if (!session.workspacePath) return;
       await recordTerminalActivity(session.workspacePath, terminalOutput, (output: string) =>
-        classifyCodebuffTerminalOutput(output),
+        this.detectActivity(output),
       );
     },
 
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
       try {
         if (handle.runtimeName === "tmux" && handle.id) {
+          // tmux and ps -eo are Unix-only; stale tmux handles are not probed on Windows.
+          if (isWindows()) return false;
           const { stdout: ttyOut } = await execFileAsync(
             "tmux",
             ["list-panes", "-t", handle.id, "-F", "#{pane_tty}"],
