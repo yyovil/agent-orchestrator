@@ -1128,15 +1128,23 @@ describe("spawn", () => {
       }),
     };
 
-    const sm = createSessionManager({ config, registry: registryWithPostLaunch });
+    const sm = createSessionManager({
+      config,
+      registry: registryWithPostLaunch,
+      postLaunchPromptDelayMs: 0,
+    });
     const session = await sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
 
     expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ id: "rt-1" }),
       expect.stringContaining("Fix the bug"),
     );
+    const deliveredPrompt = vi.mocked(mockRuntime.sendMessage).mock.calls[0]?.[1] as string;
+    expect(deliveredPrompt).toContain("Agent Orchestrator");
+    expect(deliveredPrompt).toContain("Session Lifecycle");
+    expect(deliveredPrompt).toContain("Fix the bug");
     expect(session.metadata["promptDelivered"]).toBe("true");
-  }, 10_000);
+  });
 
   it("writes worker system prompt to file and passes only explicit task prompt to agent", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });

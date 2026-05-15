@@ -2,14 +2,11 @@ import {
   DEFAULT_ACTIVE_WINDOW_MS,
   DEFAULT_READY_THRESHOLD_MS,
   PROCESS_PROBE_INDETERMINATE,
-  PREFERRED_GH_PATH,
-  buildAgentPath,
   checkActivityLogState,
   getActivityFallbackState,
   isWindows,
   readLastActivityEntry,
   recordTerminalActivity,
-  setupPathWrapperWorkspace,
   type ActivityDetection,
   type ActivityState,
   type Agent,
@@ -20,7 +17,6 @@ import {
   type ProjectConfig,
   type RuntimeHandle,
   type Session,
-  type WorkspaceHooksConfig,
 } from "@aoagents/ao-core";
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
@@ -63,7 +59,7 @@ function classifyCnTerminalOutput(terminalOutput: string): ActivityState {
   ) {
     return "blocked";
   }
-  if (/error|failed|exception/i.test(lastLine)) return "blocked";
+  if (/^\s*(error|failed|exception)\b/i.test(lastLine)) return "blocked";
 
   return "active";
 }
@@ -93,8 +89,6 @@ function createCnAgent(): Agent {
         env["AO_ISSUE_ID"] = config.issueId;
       }
 
-      env["PATH"] = buildAgentPath(process.env["PATH"]);
-      env["GH_PATH"] = PREFERRED_GH_PATH;
       env["CONTINUE_CLI_ENABLE_TELEMETRY"] = "0";
       env["CONTINUE_METRICS_ENABLED"] = "0";
       env["CONTINUE_ALLOW_ANONYMOUS_TELEMETRY"] = "0";
@@ -201,14 +195,6 @@ function createCnAgent(): Agent {
       return null;
     },
 
-    async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
-      await setupPathWrapperWorkspace(workspacePath);
-    },
-
-    async postLaunchSetup(session: Session): Promise<void> {
-      if (!session.workspacePath) return;
-      await setupPathWrapperWorkspace(session.workspacePath);
-    },
   };
 }
 
