@@ -1113,6 +1113,18 @@ describe("spawn", () => {
     expect(mockRuntime.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("delivers prompt after launch for post-launch prompt agents", async () => {
+    (mockAgent as Agent & { promptDelivery: "post-launch" }).promptDelivery = "post-launch";
+    const sm = createSessionManager({ config, registry: mockRegistry });
+
+    await sm.spawn({ projectId: "my-app", prompt: "Fix the bug" });
+
+    expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+      makeHandle("rt-1"),
+      expect.stringContaining("Fix the bug"),
+    );
+  });
+
   it("writes worker system prompt to file and passes only explicit task prompt to agent", async () => {
     const sm = createSessionManager({ config, registry: mockRegistry });
 
@@ -2383,6 +2395,21 @@ describe("spawn", () => {
       expect(existsSync(promptFile)).toBe(true);
       const { readFileSync } = await import("node:fs");
       expect(readFileSync(promptFile, "utf-8")).toBe("You are the orchestrator.");
+    });
+
+    it("delivers orchestrator system prompt after launch for post-launch prompt agents", async () => {
+      (mockAgent as Agent & { promptDelivery: "post-launch" }).promptDelivery = "post-launch";
+      const sm = createSessionManager({ config, registry: mockRegistry });
+
+      await sm.spawnOrchestrator({
+        projectId: "my-app",
+        systemPrompt: "You are the orchestrator.",
+      });
+
+      expect(mockRuntime.sendMessage).toHaveBeenCalledWith(
+        makeHandle("rt-1"),
+        "You are the orchestrator.",
+      );
     });
 
     it("persists displayName derived from the orchestrator system prompt", async () => {

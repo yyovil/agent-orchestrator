@@ -1439,6 +1439,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
         await plugins.agent.postLaunchSetup(session);
       }
 
+      if (plugins.agent.promptDelivery === "post-launch" && agentLaunchConfig.prompt) {
+        await plugins.runtime.sendMessage(handle, agentLaunchConfig.prompt);
+      }
+
       if (
         plugins.agent.name === "opencode" &&
         opencodeIssueSessionStrategy === "reuse" &&
@@ -1762,6 +1766,10 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
 
       if (plugins.agent.postLaunchSetup) {
         await plugins.agent.postLaunchSetup(session);
+      }
+
+      if (plugins.agent.promptDelivery === "post-launch" && orchestratorConfig.systemPrompt) {
+        await plugins.runtime.sendMessage(handle, orchestratorConfig.systemPrompt);
       }
 
       if (
