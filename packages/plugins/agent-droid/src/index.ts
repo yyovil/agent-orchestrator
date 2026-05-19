@@ -119,6 +119,10 @@ function getDroidLaunchArgs(config: AgentLaunchConfig): DroidCommandArg[] {
     args.push(flag("--append-system-prompt"), value(config.systemPrompt));
   }
 
+  if (config.prompt) {
+    args.push(value(config.prompt));
+  }
+
   return args;
 }
 
@@ -243,7 +247,6 @@ function createDroidAgent(): Agent {
   return {
     name: pluginName,
     processName: pluginName,
-    promptDelivery: "post-launch",
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       return buildDroidCommand(getDroidLaunchArgs(config));

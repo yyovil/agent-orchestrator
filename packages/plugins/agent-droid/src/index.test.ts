@@ -163,11 +163,10 @@ describe("manifest", () => {
 });
 
 describe("create", () => {
-  it("uses droid as process name and post-launch prompt mode", () => {
+  it("uses droid as process name", () => {
     const agent = create();
     expect(agent.name).toBe(pluginName);
     expect(agent.processName).toBe(pluginName);
-    expect(agent.promptDelivery).toBe("post-launch");
   });
 
   it("exports plugin module shape", () => {
@@ -234,15 +233,14 @@ describe("getLaunchCommand", () => {
     expect(cmd).toBe("droid --skip-permissions-unsafe");
   });
 
-  it("does not include user prompt flags in launch command", () => {
+  it("passes the user task as Droid's inline initial prompt", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({
         prompt: "Do work",
         systemPrompt: "You are helpful",
       }),
     );
-    expect(cmd).toBe("droid --append-system-prompt 'You are helpful'");
-    expect(cmd).not.toContain("Do work");
+    expect(cmd).toBe("droid --append-system-prompt 'You are helpful' 'Do work'");
   });
 });
 

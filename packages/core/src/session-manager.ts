@@ -1527,29 +1527,8 @@ export function createSessionManager(deps: SessionManagerDeps): OpenCodeSessionM
       // final form. Dismiss the stack so nothing below can trigger a rollback.
       cleanupStack.dismiss();
 
-      if (
-        plugins.agent.promptDelivery === "post-launch" &&
-        typeof taskPrompt === "string" &&
-        taskPrompt.trim()
-      ) {
-        try {
-          await plugins.runtime.sendMessage(handle, taskPrompt);
-        } catch (err) {
-          recordActivityEvent({
-            projectId: spawnConfig.projectId,
-            sessionId,
-            source: "session-manager",
-            kind: "session.post_launch_prompt_failed",
-            level: "warn",
-            summary: "post-launch prompt delivery failed",
-            data: {
-              agent: plugins.agent.name,
-              error: err instanceof Error ? err.message : String(err),
-            },
-          });
-        }
-      }
-
+      // Prompt is delivered inline via the agent's launch command (positional argument).
+      // No post-launch polling needed — the prompt is part of process invocation.
       recordActivityEvent({
         projectId: spawnConfig.projectId,
         sessionId,
