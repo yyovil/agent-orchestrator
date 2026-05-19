@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+  PROCESS_PROBE_INDETERMINATE,
   createActivitySignal,
   type Session,
   type RuntimeHandle,
@@ -221,12 +222,12 @@ describe("getLaunchCommand", () => {
 describe("getEnvironment", () => {
   const agent = create();
 
-  it("writes AO session keys and PATH wrappers", () => {
+  it("writes AO session keys without overriding centralized PATH settings", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env["AO_SESSION_ID"]).toBe("sess-1");
     expect(env["AO_ISSUE_ID"]).toBeUndefined();
-    expect(env["PATH"]).toContain(".ao/bin");
-    expect(env["GH_PATH"]).toBeTruthy();
+    expect(env["PATH"]).toBeUndefined();
+    expect(env["GH_PATH"]).toBeUndefined();
   });
 
   it("includes AO_ISSUE_ID when provided", () => {
@@ -253,6 +254,18 @@ describe("isProcessRunning", () => {
     });
 
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(true);
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      1,
+      "tmux",
+      ["list-panes", "-t", "=test-session", "-F", "#{pane_tty}"],
+      expect.objectContaining({ windowsHide: true }),
+    );
+    expect(mockExecFileAsync).toHaveBeenNthCalledWith(
+      2,
+      "ps",
+      ["-eo", "pid,tty,args"],
+      expect.objectContaining({ windowsHide: true }),
+    );
   });
 
   it("returns false when tmux process is missing", async () => {
@@ -264,6 +277,16 @@ describe("isProcessRunning", () => {
       return Promise.reject(new Error("unexpected"));
     });
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
+  });
+
+  it("returns indeterminate when tmux probing fails", async () => {
+    mockExecFileAsync.mockRejectedValue(new Error("tmux unavailable"));
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(PROCESS_PROBE_INDETERMINATE);
+  });
+
+  it("returns indeterminate when tmux returns no panes", async () => {
+    mockExecFileAsync.mockResolvedValue({ stdout: "\n", stderr: "" });
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(PROCESS_PROBE_INDETERMINATE);
   });
 
   it("returns true when process handle pid is alive", async () => {
@@ -286,6 +309,14 @@ describe("isProcessRunning", () => {
       throw Object.assign(new Error("no such process"), { code: "ESRCH" });
     });
     expect(await agent.isProcessRunning(makeProcessHandle(123))).toBe(false);
+    killSpy.mockRestore();
+  });
+
+  it("returns indeterminate when process probing fails unexpectedly", async () => {
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error("invalid signal"), { code: "EINVAL" });
+    });
+    expect(await agent.isProcessRunning(makeProcessHandle(123))).toBe(PROCESS_PROBE_INDETERMINATE);
     killSpy.mockRestore();
   });
 });
@@ -338,6 +369,15 @@ describe("recordActivity", () => {
     expect(classify?.("Task completed")).toBe("ready");
   });
 
+  it("does not classify generic done or complete text as ready", async () => {
+    await agent.recordActivity?.(makeSession(), "tests done: 3/5");
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
+    expect(classify?.("tests done: 3/5")).toBe("active");
+    expect(classify?.("implementation almost complete")).toBe("active");
+  });
+
   it("skips recording when workspacePath is missing", async () => {
     await agent.recordActivity?.(makeSession({ workspacePath: null }), "still running");
     expect(mockRecordTerminalActivity).not.toHaveBeenCalled();
@@ -361,6 +401,12 @@ describe("getActivityState", () => {
     );
     expect(state).toMatchObject({ state: "exited" });
     killSpy.mockRestore();
+  });
+
+  it("returns null when process probing is indeterminate", async () => {
+    mockExecFileAsync.mockRejectedValue(new Error("tmux unavailable"));
+    const state = await agent.getActivityState(makeSession({ runtimeHandle: makeTmuxHandle() }));
+    expect(state).toBeNull();
   });
 
   it("falls back to activity JSONL state", async () => {

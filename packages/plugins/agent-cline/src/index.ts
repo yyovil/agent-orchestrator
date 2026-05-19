@@ -1,14 +1,14 @@
 import {
   DEFAULT_READY_THRESHOLD_MS,
   DEFAULT_ACTIVE_WINDOW_MS,
+  PROCESS_PROBE_INDETERMINATE,
+  isWindows,
   shellEscape,
-  buildAgentPath,
   readLastActivityEntry,
   checkActivityLogState,
   getActivityFallbackState,
   recordTerminalActivity,
   setupPathWrapperWorkspace,
-  PREFERRED_GH_PATH,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -16,6 +16,7 @@ import {
   type ActivityState,
   type PluginModule,
   type ProjectConfig,
+  type ProcessProbeResult,
   type RuntimeHandle,
   type Session,
   type WorkspaceHooksConfig,
@@ -79,8 +80,8 @@ function classifyClineTerminalOutput(terminalOutput: string): ActivityState {
   if (/press\s+h\s*\+\s*enter\s+to\s+show\s+shortcuts/i.test(lastNonEmptyLine)) return "idle";
   if (CLINE_APPROVAL_PROMPT_RE.test(lastNonEmptyLine)) return "waiting_input";
   if (CLINE_CONTINUE_PROMPT_RE.test(lastNonEmptyLine)) return "waiting_input";
-  if (/\b(task|session)\s+(completed|finished|ended)\b/i.test(lastNonEmptyLine)) return "ready";
-  if (/\b(done|complete)\b/i.test(lastNonEmptyLine)) return "ready";
+  if (/\b(?:task\s+(?:completed|finished)|session\s+ended)\b/i.test(lastNonEmptyLine))
+    return "ready";
   if (
     /\b(error|failed|exception|not authenticated|requires a tty|requires approval in a tty|denied by user)\b/i.test(
       lastNonEmptyLine,
@@ -111,6 +112,7 @@ async function readClineHistory(): Promise<ClineHistoryEntry[]> {
       {
         timeout: CLINE_COMMAND_TIMEOUT_MS,
         maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true,
       },
     );
     return parseClineHistory(stdout);
@@ -162,9 +164,6 @@ function createClineAgent(): Agent {
         env["AO_ISSUE_ID"] = config.issueId;
       }
 
-      env["PATH"] = buildAgentPath(process.env["PATH"]);
-      env["GH_PATH"] = PREFERRED_GH_PATH;
-
       return env;
     },
 
@@ -182,6 +181,7 @@ function createClineAgent(): Agent {
       const exitedAt = new Date();
       if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
       const running = await this.isProcessRunning(session.runtimeHandle);
+      if (running === PROCESS_PROBE_INDETERMINATE) return null;
       if (!running) return { state: "exited", timestamp: exitedAt };
 
       let activityResult: Awaited<ReturnType<typeof readLastActivityEntry>> = null;
@@ -204,24 +204,29 @@ function createClineAgent(): Agent {
       );
     },
 
-    async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
-      try {
-        if (handle.runtimeName === "tmux" && handle.id) {
+    async isProcessRunning(handle: RuntimeHandle): Promise<ProcessProbeResult> {
+      if (handle.runtimeName === "tmux" && handle.id) {
+        if (isWindows()) return false;
+
+        try {
           const { stdout: ttyOut } = await execFileAsync(
             "tmux",
-            ["list-panes", "-t", handle.id, "-F", "#{pane_tty}"],
-            { timeout: CLINE_COMMAND_TIMEOUT_MS },
+            ["list-panes", "-t", `=${handle.id}`, "-F", "#{pane_tty}"],
+            { timeout: CLINE_COMMAND_TIMEOUT_MS, windowsHide: true },
           );
           const ttys = ttyOut
             .trim()
             .split("\n")
             .map((t) => t.trim())
             .filter(Boolean);
-          if (ttys.length === 0) return false;
+          if (ttys.length === 0) return PROCESS_PROBE_INDETERMINATE;
 
           const { stdout: psOut } = await execFileAsync("ps", ["-eo", "pid,tty,args"], {
             timeout: CLINE_COMMAND_TIMEOUT_MS,
+            windowsHide: true,
           });
+          if (!psOut.trim()) return PROCESS_PROBE_INDETERMINATE;
+
           const ttySet = new Set(ttys.map((t) => t.replace(/^\/dev\//, "")));
           const processRe = /(?:^|[\s/])cline(?:\s|$)/;
           for (const line of psOut.split("\n")) {
@@ -233,25 +238,28 @@ function createClineAgent(): Agent {
             }
           }
           return false;
+        } catch {
+          return PROCESS_PROBE_INDETERMINATE;
         }
+      }
 
-        const rawPid = handle.data["pid"];
-        const pid = typeof rawPid === "number" ? rawPid : Number(rawPid);
-        if (Number.isFinite(pid) && pid > 0) {
-          try {
-            process.kill(pid, 0);
+      const rawPid = handle.data["pid"];
+      const pid = typeof rawPid === "number" ? rawPid : Number(rawPid);
+      if (Number.isFinite(pid) && pid > 0) {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch (err: unknown) {
+          if (err instanceof Error && (err as NodeJS.ErrnoException).code === "EPERM") {
             return true;
-          } catch (err: unknown) {
-            if (err instanceof Error && (err as NodeJS.ErrnoException).code === "EPERM") {
-              return true;
-            }
+          }
+          if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ESRCH") {
             return false;
           }
+          return PROCESS_PROBE_INDETERMINATE;
         }
-        return false;
-      } catch {
-        return false;
       }
+      return false;
     },
 
     async getSessionInfo(session: Session): Promise<AgentSessionInfo | null> {
