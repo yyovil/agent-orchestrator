@@ -1,6 +1,6 @@
 {
   "name": "@aoagents/ao-plugin-workspace-worktree",
-  "version": "0.8.0",
+  "version": "0.0.0-nightly-ee3fb5d33ae7c00c1737aa0807ea90519ba9773f",
   "description": "Workspace plugin: git worktrees",
   "license": "MIT",
   "type": "module",
