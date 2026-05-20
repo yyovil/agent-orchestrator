@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Session, RuntimeHandle, AgentLaunchConfig } from "@aoagents/ao-core";
+import {
+  PROCESS_PROBE_INDETERMINATE,
+  type Session,
+  type RuntimeHandle,
+  type AgentLaunchConfig,
+} from "@aoagents/ao-core";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -16,15 +21,15 @@ const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
 const {
   mockReadLastActivityEntry,
   mockRecordTerminalActivity,
-  mockSetupPathWrapperWorkspace,
   mockExecFileAsync,
   mockWhichSync,
+  mockIsWindows,
 } = vi.hoisted(() => ({
   mockReadLastActivityEntry: vi.fn().mockResolvedValue(null),
   mockRecordTerminalActivity: vi.fn().mockResolvedValue(undefined),
-  mockSetupPathWrapperWorkspace: vi.fn().mockResolvedValue(undefined),
   mockExecFileAsync: vi.fn(),
   mockWhichSync: vi.fn(),
+  mockIsWindows: vi.fn(() => false),
 }));
 
 vi.mock("@aoagents/ao-core", async (importOriginal) => {
@@ -33,7 +38,7 @@ vi.mock("@aoagents/ao-core", async (importOriginal) => {
     ...actual,
     readLastActivityEntry: mockReadLastActivityEntry,
     recordTerminalActivity: mockRecordTerminalActivity,
-    setupPathWrapperWorkspace: mockSetupPathWrapperWorkspace,
+    isWindows: mockIsWindows,
   };
 });
 
@@ -125,6 +130,7 @@ function makeActivityResult(
 beforeEach(() => {
   vi.clearAllMocks();
   mockWhichSync.mockReset();
+  mockIsWindows.mockReturnValue(false);
 });
 
 describe("manifest", () => {
@@ -215,12 +221,12 @@ describe("getLaunchCommand", () => {
 describe("getEnvironment", () => {
   const agent = create();
 
-  it("writes AO session keys and PATH", () => {
+  it("writes only Gemini-owned AO session keys", () => {
     const env = agent.getEnvironment(makeLaunchConfig());
     expect(env["AO_SESSION_ID"]).toBe("sess-1");
     expect(env["AO_ISSUE_ID"]).toBeUndefined();
-    expect(env["PATH"]).toContain(".ao/bin");
-    expect(env["GH_PATH"]).toBeDefined();
+    expect(env["PATH"]).toBeUndefined();
+    expect(env["GH_PATH"]).toBeUndefined();
   });
 
   it("includes AO_ISSUE_ID when provided", () => {
@@ -274,6 +280,17 @@ describe("isProcessRunning", () => {
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
   });
 
+  it("returns indeterminate when tmux probing fails", async () => {
+    mockExecFileAsync.mockRejectedValue(new Error("tmux failed"));
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(PROCESS_PROBE_INDETERMINATE);
+  });
+
+  it("returns indeterminate for tmux handles on Windows", async () => {
+    mockIsWindows.mockReturnValue(true);
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(PROCESS_PROBE_INDETERMINATE);
+    expect(mockExecFileAsync).not.toHaveBeenCalled();
+  });
+
   it("returns true when process handle pid is alive", async () => {
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
     expect(await agent.isProcessRunning(makeProcessHandle(123))).toBe(true);
@@ -283,9 +300,17 @@ describe("isProcessRunning", () => {
 
   it("returns false when process handle pid is dead", async () => {
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
-      throw new Error("ESRCH");
+      throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
     });
     expect(await agent.isProcessRunning(makeProcessHandle(123))).toBe(false);
+    killSpy.mockRestore();
+  });
+
+  it("returns indeterminate when process probing fails unexpectedly", async () => {
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+    });
+    expect(await agent.isProcessRunning(makeProcessHandle(123))).toBe(PROCESS_PROBE_INDETERMINATE);
     killSpy.mockRestore();
   });
 });
@@ -342,6 +367,14 @@ describe("getActivityState", () => {
   it("falls back to exited when runtime handle missing", async () => {
     const state = await agent.getActivityState(makeSession({ runtimeHandle: null }));
     expect(state).toMatchObject({ state: "exited" });
+  });
+
+  it("returns null when liveness probing is indeterminate", async () => {
+    mockExecFileAsync.mockRejectedValue(new Error("tmux failed"));
+    const state = await agent.getActivityState(
+      makeSession({ runtimeHandle: makeTmuxHandle(), metadata: {} }),
+    );
+    expect(state).toBeNull();
   });
 
   it("falls back to activity JSONL state", async () => {
@@ -415,28 +448,19 @@ describe("session metadata", () => {
 describe("postLaunchSetup", () => {
   const agent = create();
 
-  it("sets up workspace hooks", async () => {
+  it("leaves PATH wrapper setup to session-manager", async () => {
     await expect(
       agent.postLaunchSetup?.(makeSession({ workspacePath: "/workspace/test" })),
     ).resolves.toBeUndefined();
-    expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
-  });
-
-  it("skips workspace hooks when workspacePath is missing", async () => {
-    await expect(
-      agent.postLaunchSetup?.(makeSession({ workspacePath: null })),
-    ).resolves.toBeUndefined();
-    expect(mockSetupPathWrapperWorkspace).not.toHaveBeenCalled();
   });
 });
 
 describe("setupWorkspaceHooks", () => {
   const agent = create();
 
-  it("sets up PATH wrapper workspace hooks", async () => {
+  it("leaves PATH wrapper workspace hooks to session-manager", async () => {
     await expect(
       agent.setupWorkspaceHooks?.("/workspace/test", { dataDir: "/tmp/ao", sessionId: "sess-1" }),
     ).resolves.toBeUndefined();
-    expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
   });
 });

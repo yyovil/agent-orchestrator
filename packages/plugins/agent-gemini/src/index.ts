@@ -2,19 +2,19 @@ import {
   DEFAULT_READY_THRESHOLD_MS,
   DEFAULT_ACTIVE_WINDOW_MS,
   shellEscape,
-  buildAgentPath,
   readLastActivityEntry,
   checkActivityLogState,
   getActivityFallbackState,
   recordTerminalActivity,
-  setupPathWrapperWorkspace,
-  PREFERRED_GH_PATH,
+  PROCESS_PROBE_INDETERMINATE,
+  isWindows,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
   type ActivityDetection,
   type ActivityState,
   type PluginModule,
+  type ProcessProbeResult,
   type ProjectConfig,
   type RuntimeHandle,
   type Session,
@@ -120,8 +120,7 @@ function createGeminiAgent(): Agent {
         env["AO_ISSUE_ID"] = config.issueId;
       }
 
-      env["PATH"] = buildAgentPath(process.env["PATH"]);
-      env["GH_PATH"] = PREFERRED_GH_PATH;
+      // PATH and GH_PATH are injected by session-manager for all agents.
 
       return env;
     },
@@ -140,7 +139,8 @@ function createGeminiAgent(): Agent {
       const exitedAt = new Date();
       if (!session.runtimeHandle) return { state: "exited", timestamp: exitedAt };
       const running = await this.isProcessRunning(session.runtimeHandle);
-      if (!running) return { state: "exited", timestamp: exitedAt };
+      if (running === PROCESS_PROBE_INDETERMINATE) return null;
+      if (running === false) return { state: "exited", timestamp: exitedAt };
 
       let activityResult: Awaited<ReturnType<typeof readLastActivityEntry>> = null;
       if (session.workspacePath) {
@@ -162,9 +162,11 @@ function createGeminiAgent(): Agent {
       );
     },
 
-    async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
+    async isProcessRunning(handle: RuntimeHandle): Promise<ProcessProbeResult> {
       try {
         if (handle.runtimeName === "tmux" && handle.id) {
+          if (isWindows()) return PROCESS_PROBE_INDETERMINATE;
+
           const { stdout: ttyOut } = await execFileAsync(
             "tmux",
             ["list-panes", "-t", handle.id, "-F", "#{pane_tty}"],
@@ -180,6 +182,8 @@ function createGeminiAgent(): Agent {
           const { stdout: psOut } = await execFileAsync("ps", ["-eo", "pid,tty,args"], {
             timeout: 30_000,
           });
+          if (!psOut) return PROCESS_PROBE_INDETERMINATE;
+
           const ttySet = new Set(ttys.map((t) => t.replace(/^\/dev\//, "")));
           const processRe = /(?:^|\/)(?:gemini|gemini\.js)(?:\s|$)/;
           for (const line of psOut.split("\n")) {
@@ -203,12 +207,15 @@ function createGeminiAgent(): Agent {
             if (err instanceof Error && (err as NodeJS.ErrnoException).code === "EPERM") {
               return true;
             }
-            return false;
+            if (err instanceof Error && (err as NodeJS.ErrnoException).code === "ESRCH") {
+              return false;
+            }
+            return PROCESS_PROBE_INDETERMINATE;
           }
         }
         return false;
       } catch {
-        return false;
+        return PROCESS_PROBE_INDETERMINATE;
       }
     },
 
@@ -220,13 +227,12 @@ function createGeminiAgent(): Agent {
       return null;
     },
 
-    async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
-      await setupPathWrapperWorkspace(workspacePath);
+    async setupWorkspaceHooks(_workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {
+      // PATH wrappers are installed by session-manager for all agents.
     },
 
-    async postLaunchSetup(session: Session): Promise<void> {
-      if (!session.workspacePath) return;
-      await setupPathWrapperWorkspace(session.workspacePath);
+    async postLaunchSetup(_session: Session): Promise<void> {
+      // PATH wrappers are re-ensured by session-manager.
     },
   };
 }
