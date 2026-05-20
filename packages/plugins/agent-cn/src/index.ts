@@ -46,16 +46,23 @@ function classifyCnTerminalOutput(terminalOutput: string): ActivityState {
 
   const lines = normalizedOutput.split("\n").map((line) => line.trim());
   const lastLine = lines[lines.length - 1] ?? "";
+  const nonEmptyLines = lines.filter(Boolean);
   const lastNonEmptyLine = [...lines].reverse().find(Boolean) ?? "";
+  const recentOutput = nonEmptyLines.slice(-3).join("\n");
 
   if (/^[>$#]\s*$/.test(lastLine)) return "idle";
   if (/Enter text\.\.\./i.test(lastNonEmptyLine)) return "idle";
-  if (/Would you like to continue\?/i.test(normalizedOutput)) return "waiting_input";
-  if (/Press enter to continue/i.test(normalizedOutput)) return "waiting_input";
-  if (/Press Enter for default/i.test(normalizedOutput)) return "waiting_input";
-  if (/Enter your .*API key/i.test(normalizedOutput)) return "waiting_input";
   if (
-    /Not authenticated|Please run ['"]?cn login|Authentication required/i.test(normalizedOutput)
+    /Would you like to continue\?/i.test(lastNonEmptyLine) ||
+    (/Would you like to continue\?/i.test(recentOutput) && /^>\s*\S/.test(lastNonEmptyLine))
+  ) {
+    return "waiting_input";
+  }
+  if (/Press enter to continue/i.test(lastNonEmptyLine)) return "waiting_input";
+  if (/Press Enter for default/i.test(lastNonEmptyLine)) return "waiting_input";
+  if (/Enter your .*API key/i.test(lastNonEmptyLine)) return "waiting_input";
+  if (
+    /Not authenticated|Please run ['"]?cn login|Authentication required/i.test(lastNonEmptyLine)
   ) {
     return "blocked";
   }

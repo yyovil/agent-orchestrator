@@ -318,12 +318,33 @@ describe("recordActivity", () => {
     expect(classify?.("Would you like to continue?\n> Continue (tab)")).toBe("waiting_input");
   });
 
+  it("ignores stale tool permission prompts when later output is active", async () => {
+    await agent.recordActivity?.(makeSession(), "Would you like to continue?\nBuilding package");
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
+    expect(classify?.("Would you like to continue?\nBuilding package")).toBe("active");
+  });
+
   it("classifies auth failures as blocked", async () => {
     await agent.recordActivity?.(makeSession(), "Not authenticated. Please run 'cn login' first.");
     const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
       | ((output: string) => string)
       | undefined;
     expect(classify?.("Not authenticated. Please run 'cn login' first.")).toBe("blocked");
+  });
+
+  it("ignores stale auth failures when later output is active", async () => {
+    await agent.recordActivity?.(
+      makeSession(),
+      "Not authenticated. Please run 'cn login' first.\nRetrying request",
+    );
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
+    expect(classify?.("Not authenticated. Please run 'cn login' first.\nRetrying request")).toBe(
+      "active",
+    );
   });
 
   it("classifies ordinary output as active", async () => {
