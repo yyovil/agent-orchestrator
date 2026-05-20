@@ -441,6 +441,25 @@ describe("recordActivity", () => {
     );
   });
 
+  it("does not classify stale waiting-input prompts in scrollback as waiting_input", async () => {
+    await agent.recordActivity?.(
+      makeSession(),
+      "Press any key to continue...\nReading package.json",
+    );
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
+    expect(classify?.("Press any key to continue...\nReading package.json")).toBe("active");
+  });
+
+  it("does not classify stale idle prompts in scrollback as idle", async () => {
+    await agent.recordActivity?.(makeSession(), "How can I help?\nReading package.json");
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
+    expect(classify?.("How can I help?\nReading package.json")).toBe("active");
+  });
+
   it("classifies blocked terminal output", async () => {
     await agent.recordActivity?.(makeSession(), "Error: API key is missing");
     const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as

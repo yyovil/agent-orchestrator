@@ -133,10 +133,8 @@ function classifyPiTerminalOutput(terminalOutput: string): ActivityState {
   const lastNonEmptyLine = [...lines].reverse().find(Boolean) ?? "";
 
   if (/^[>$#]\s*$/.test(lastLine)) return "idle";
-  if (PI_IDLE_PROMPT_RE.test(normalizedOutput)) return "idle";
-  if (PI_WAITING_INPUT_RE.test(lastNonEmptyLine) || PI_WAITING_INPUT_RE.test(normalizedOutput)) {
-    return "waiting_input";
-  }
+  if (PI_IDLE_PROMPT_RE.test(lastNonEmptyLine)) return "idle";
+  if (PI_WAITING_INPUT_RE.test(lastNonEmptyLine)) return "waiting_input";
   if (PI_BLOCKED_RE.test(lastLine) || PI_BLOCKED_RE.test(lastNonEmptyLine)) return "blocked";
 
   return "active";
