@@ -18,13 +18,15 @@ const {
   mockRecordTerminalActivity,
   mockSetupPathWrapperWorkspace,
   mockExecFileAsync,
-  mockWhichSync,
+  mockExecFileSync,
+  mockIsWindows,
 } = vi.hoisted(() => ({
   mockReadLastActivityEntry: vi.fn().mockResolvedValue(null),
   mockRecordTerminalActivity: vi.fn().mockResolvedValue(undefined),
   mockSetupPathWrapperWorkspace: vi.fn().mockResolvedValue(undefined),
   mockExecFileAsync: vi.fn(),
-  mockWhichSync: vi.fn(),
+  mockExecFileSync: vi.fn(),
+  mockIsWindows: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("@aoagents/ao-core", async (importOriginal) => {
@@ -34,15 +36,9 @@ vi.mock("@aoagents/ao-core", async (importOriginal) => {
     readLastActivityEntry: mockReadLastActivityEntry,
     recordTerminalActivity: mockRecordTerminalActivity,
     setupPathWrapperWorkspace: mockSetupPathWrapperWorkspace,
+    isWindows: mockIsWindows,
   };
 });
-
-vi.mock("which", () => ({
-  default: {
-    sync: mockWhichSync,
-  },
-  sync: mockWhichSync,
-}));
 
 vi.mock("node:child_process", () => ({
   execFile: (...args: unknown[]) => {
@@ -55,6 +51,7 @@ vi.mock("node:child_process", () => ({
       );
     }
   },
+  execFileSync: mockExecFileSync,
 }));
 
 import { create, detect, manifest, default as defaultExport } from "./index.js";
@@ -128,8 +125,9 @@ function makeActivityResult(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockWhichSync.mockReset();
   mockExecFileAsync.mockReset();
+  mockExecFileSync.mockReset();
+  mockIsWindows.mockReturnValue(false);
   mockReadLastActivityEntry.mockResolvedValue(null);
 });
 
@@ -160,13 +158,36 @@ describe("create", () => {
 });
 
 describe("detect", () => {
-  it("returns true when which resolves", async () => {
-    mockWhichSync.mockReturnValue("/usr/local/bin/auggie");
+  it("returns true when the Auggie version command succeeds", async () => {
+    mockExecFileSync.mockReturnValue(Buffer.from(""));
     expect(detect()).toBe(true);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "auggie",
+      ["--version"],
+      expect.objectContaining({
+        stdio: "ignore",
+        shell: false,
+        windowsHide: true,
+      }),
+    );
   });
 
-  it("returns false when which fails", async () => {
-    mockWhichSync.mockImplementation(() => {
+  it("uses shell detection on Windows so .cmd shims resolve", async () => {
+    mockIsWindows.mockReturnValue(true);
+    mockExecFileSync.mockReturnValue(Buffer.from(""));
+    expect(detect()).toBe(true);
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "auggie",
+      ["--version"],
+      expect.objectContaining({
+        shell: true,
+        windowsHide: true,
+      }),
+    );
+  });
+
+  it("returns false when the Auggie version command fails", async () => {
+    mockExecFileSync.mockImplementation(() => {
       throw new Error("not found");
     });
     expect(detect()).toBe(false);
@@ -277,6 +298,12 @@ describe("isProcessRunning", () => {
       return Promise.reject(new Error("unexpected"));
     });
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
+  });
+
+  it("returns false for tmux handles on Windows without spawning tmux or ps", async () => {
+    mockIsWindows.mockReturnValue(true);
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
+    expect(mockExecFileAsync).not.toHaveBeenCalled();
   });
 
   it("returns true when process handle pid is alive", async () => {

@@ -9,6 +9,7 @@ import {
   recordTerminalActivity,
   setupPathWrapperWorkspace,
   PREFERRED_GH_PATH,
+  isWindows,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -21,10 +22,9 @@ import {
   type WorkspaceHooksConfig,
   type AgentSpecificConfig,
 } from "@aoagents/ao-core";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
-import which from "which";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json") as {
@@ -169,6 +169,8 @@ function createAuggieAgent(): Agent {
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
       try {
         if (handle.runtimeName === "tmux" && handle.id) {
+          if (isWindows()) return false;
+
           const { stdout: ttyOut } = await execFileAsync(
             "tmux",
             ["list-panes", "-t", handle.id, "-F", "#{pane_tty}"],
@@ -256,7 +258,12 @@ export function create(): Agent {
 
 export function detect(): boolean {
   try {
-    return Boolean(which.sync("auggie"));
+    execFileSync("auggie", ["--version"], {
+      stdio: "ignore",
+      shell: isWindows(),
+      windowsHide: true,
+    });
+    return true;
   } catch {
     return false;
   }
