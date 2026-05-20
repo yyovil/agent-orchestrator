@@ -152,11 +152,11 @@ describe("manifest", () => {
 });
 
 describe("create", () => {
-  it("uses cn as process name and post-launch prompt mode", () => {
+  it("uses cn as process name and inline prompt mode", () => {
     const agent = create();
     expect(agent.name).toBe(pluginName);
     expect(agent.processName).toBe(pluginName);
-    expect(agent.promptDelivery).toBe("post-launch");
+    expect(agent.promptDelivery).toBeUndefined();
   });
 
   it("exports plugin module shape", () => {
@@ -199,7 +199,7 @@ describe("getLaunchCommand", () => {
     expect(cmd).toBe("cn");
   });
 
-  it("does not include prompt flags in launch command", () => {
+  it("passes the system prompt file and task prompt to Continue CLI on launch", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({
         prompt: "Do work",
@@ -207,9 +207,17 @@ describe("getLaunchCommand", () => {
         systemPromptFile: "/tmp/prompt.md",
       }),
     );
-    expect(cmd).toBe("cn");
-    expect(cmd).not.toContain("-p");
-    expect(cmd).not.toContain("--prompt");
+    expect(cmd).toBe("cn --prompt '/tmp/prompt.md' 'Do work'");
+  });
+
+  it("shell-escapes prompt arguments", () => {
+    const cmd = agent.getLaunchCommand(
+      makeLaunchConfig({
+        prompt: "fix it's broken",
+        systemPromptFile: "/tmp/prompt with spaces.md",
+      }),
+    );
+    expect(cmd).toBe("cn --prompt '/tmp/prompt with spaces.md' 'fix it'\\''s broken'");
   });
 });
 

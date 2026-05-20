@@ -7,6 +7,7 @@ import {
   isWindows,
   readLastActivityEntry,
   recordTerminalActivity,
+  shellEscape,
   type ActivityDetection,
   type ActivityState,
   type Agent,
@@ -88,10 +89,17 @@ function createCnAgent(): Agent {
   return {
     name: pluginName,
     processName: pluginName,
-    promptDelivery: "post-launch",
 
-    getLaunchCommand(_config: AgentLaunchConfig): string {
-      return "cn";
+    getLaunchCommand(config: AgentLaunchConfig): string {
+      const args: string[] = [];
+      if (config.systemPromptFile) {
+        args.push("--prompt", shellEscape(config.systemPromptFile));
+      }
+      if (config.prompt) {
+        args.push(shellEscape(config.prompt));
+      }
+
+      return args.length > 0 ? `cn ${args.join(" ")}` : "cn";
     },
 
     getEnvironment(config: AgentLaunchConfig): Record<string, string> {
