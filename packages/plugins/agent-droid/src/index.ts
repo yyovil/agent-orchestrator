@@ -45,10 +45,6 @@ const DROID_SETTINGS_DIR = ".factory";
 const DROID_SETTINGS_FILE = "settings.local.json";
 const DROID_SESSION_HOOK_DIR = ".ao/droid";
 const DROID_SESSION_HOOK_FILE = "session-hook.mjs";
-const DROID_SESSION_HOOK_ASSET_CANDIDATES = [
-  fileURLToPath(new URL("./session-hook.mjs", import.meta.url)),
-  fileURLToPath(new URL("../dist/session-hook.mjs", import.meta.url)),
-];
 const DROID_SESSION_ID_RE = /^[A-Za-z0-9._:-]{1,200}$/;
 const ANSI_ESCAPE_RE = new RegExp(
   `${String.fromCharCode(27)}(?:[@-Z\\-_]|\\[[0-?]*[ -/]*[@-~])`,
@@ -148,9 +144,8 @@ function classifyDroidTerminalOutput(terminalOutput: string): ActivityState {
     return "waiting_input";
   }
   if (
-    /not authenticated|authentication failed|create an api key|error|failed|exception/i.test(
-      lastLine,
-    )
+    /\b(?:not authenticated|authentication failed|create an api key)\b/i.test(lastNonEmptyLine) ||
+    /^(?:error|failed|exception)\b[:\s-]*/i.test(lastNonEmptyLine)
   ) {
     return "blocked";
   }
@@ -159,7 +154,12 @@ function classifyDroidTerminalOutput(terminalOutput: string): ActivityState {
 }
 
 async function getDroidSessionHookAssetPath(): Promise<string> {
-  for (const candidate of DROID_SESSION_HOOK_ASSET_CANDIDATES) {
+  const candidates = [
+    fileURLToPath(new URL("./session-hook.mjs", import.meta.url)),
+    fileURLToPath(new URL("../dist/session-hook.mjs", import.meta.url)),
+  ];
+
+  for (const candidate of candidates) {
     try {
       await access(candidate);
       return candidate;

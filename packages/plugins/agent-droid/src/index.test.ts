@@ -377,6 +377,22 @@ describe("recordActivity", () => {
     expect(classify?.("Not authenticated. Create an API key.")).toBe("blocked");
   });
 
+  it("classifies blocked terminal output using the last non-empty line", async () => {
+    await agent.recordActivity?.(makeSession(), "Not authenticated. Create an API key.\n");
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
+    expect(classify?.("Not authenticated. Create an API key.\n")).toBe("blocked");
+  });
+
+  it("does not classify generic progress text containing error words as blocked", async () => {
+    await agent.recordActivity?.(makeSession(), "Reviewing failed-test handling");
+    const classify = mockRecordTerminalActivity.mock.calls[0]?.[2] as
+      | ((output: string) => string)
+      | undefined;
+    expect(classify?.("Reviewing failed-test handling")).toBe("active");
+  });
+
   it("skips recording when workspacePath is missing", async () => {
     await agent.recordActivity?.(makeSession({ workspacePath: null }), "still running");
     expect(mockRecordTerminalActivity).not.toHaveBeenCalled();
