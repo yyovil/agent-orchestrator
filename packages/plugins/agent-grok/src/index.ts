@@ -23,6 +23,7 @@ import {
 } from "@aoagents/ao-core";
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
+import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 import which from "which";
 
@@ -39,6 +40,8 @@ const pluginName = packageJson.name.startsWith(PACKAGE_NAME_PREFIX)
 
 const execFileAsync = promisify(execFile);
 const GROK_EXECUTABLE = "grok";
+const GROK_STARTUP_READY_TIMEOUT_MS = 30_000;
+const GROK_STARTUP_POLL_MS = 500;
 const ANSI_ESCAPE_RE = new RegExp(
   `${String.fromCharCode(27)}(?:[@-Z\\-_]|\\[[0-?]*[ -/]*[@-~])`,
   "g",
@@ -79,7 +82,11 @@ function getConfiguredSandbox(config: AgentLaunchConfig): string | null {
 }
 
 function buildGrokCommand(config: AgentLaunchConfig, sessionId?: string | null): string {
+  const restoreSessionId = sessionId ?? getConfiguredGrokSessionId(config);
   const parts = [GROK_EXECUTABLE, "--no-alt-screen"];
+  if (!restoreSessionId) {
+    parts.push("--worktree");
+  }
   const model = getConfiguredModel(config);
   if (model) {
     parts.push("--model", shellEscape(model));
@@ -89,11 +96,33 @@ function buildGrokCommand(config: AgentLaunchConfig, sessionId?: string | null):
   } else if (config.systemPrompt) {
     parts.push("--rules", shellEscape(config.systemPrompt));
   }
-  const restoreSessionId = sessionId ?? getConfiguredGrokSessionId(config);
   if (restoreSessionId) {
     parts.push("--resume", shellEscape(restoreSessionId));
   }
   return parts.join(" ");
+}
+
+async function captureTmuxOutput(handle: RuntimeHandle): Promise<string> {
+  const { stdout } = await execFileAsync(
+    "tmux",
+    ["capture-pane", "-t", handle.id, "-p", "-S", "-120"],
+    { timeout: 5_000 },
+  );
+  return stdout;
+}
+
+async function waitForGrokWorktreeReady(session: Session): Promise<void> {
+  const handle = session.runtimeHandle;
+  if (!handle || handle.runtimeName !== "tmux" || !handle.id) return;
+  if (isWindows()) return;
+  if (asGrokSessionId(session.metadata?.grokSessionId)) return;
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < GROK_STARTUP_READY_TIMEOUT_MS) {
+    const output = await captureTmuxOutput(handle);
+    if (/Worktree ready:/i.test(output)) return;
+    await sleep(GROK_STARTUP_POLL_MS);
+  }
 }
 
 function classifyGrokTerminalOutput(terminalOutput: string): ActivityState {
@@ -264,8 +293,10 @@ function createGrokAgent(): Agent {
     },
 
     async postLaunchSetup(session: Session): Promise<void> {
-      if (!session.workspacePath) return;
-      await setupPathWrapperWorkspace(session.workspacePath);
+      if (session.workspacePath) {
+        await setupPathWrapperWorkspace(session.workspacePath);
+      }
+      await waitForGrokWorktreeReady(session);
     },
   };
 }

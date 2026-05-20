@@ -189,7 +189,7 @@ describe("getLaunchCommand", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({ projectConfig: { ...makeLaunchConfig().projectConfig, agentConfig: {} } }),
     );
-    expect(cmd).toBe("grok --no-alt-screen");
+    expect(cmd).toBe("grok --no-alt-screen --worktree");
   });
 
   it("uses configured model and rules file when provided", () => {
@@ -199,7 +199,9 @@ describe("getLaunchCommand", () => {
         systemPromptFile: "/tmp/ao prompt.md",
       }),
     );
-    expect(cmd).toBe("grok --no-alt-screen --model 'grok-4.1' --rules '@/tmp/ao prompt.md'");
+    expect(cmd).toBe(
+      "grok --no-alt-screen --worktree --model 'grok-4.1' --rules '@/tmp/ao prompt.md'",
+    );
   });
 
   it("uses --resume when a configured Grok session id is present", () => {
@@ -495,5 +497,23 @@ describe("workspace hooks", () => {
   it("runs post-launch workspace hook setup", async () => {
     await agent.postLaunchSetup?.(makeSession({ workspacePath: "/workspace/test" }));
     expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
+  });
+
+  it("waits for Grok worktree readiness before post-launch prompt delivery", async () => {
+    mockExecFileAsync.mockResolvedValue({
+      stdout: "Worktree ready: /Users/me/.grok/worktrees/project/smoke\n",
+      stderr: "",
+    });
+
+    await agent.postLaunchSetup?.(
+      makeSession({ workspacePath: "/workspace/test", runtimeHandle: makeTmuxHandle("ao-smoke") }),
+    );
+
+    expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
+    expect(mockExecFileAsync).toHaveBeenCalledWith(
+      "tmux",
+      ["capture-pane", "-t", "ao-smoke", "-p", "-S", "-120"],
+      { timeout: 5_000 },
+    );
   });
 });
