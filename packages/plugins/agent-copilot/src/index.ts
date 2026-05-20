@@ -25,6 +25,7 @@ import {
 } from "@aoagents/ao-core";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
 import which from "which";
@@ -119,10 +120,38 @@ function getConfiguredPermissionMode(config: AgentLaunchConfig): string | undefi
   return config.permissions ?? agentConfig?.permissions;
 }
 
-function buildCopilotCommand(config: AgentLaunchConfig, restoreSessionId?: string): string {
+function buildInitialPrompt(config: AgentLaunchConfig): string | null {
+  const parts: string[] = [];
+
+  if (config.systemPromptFile) {
+    try {
+      const systemPrompt = readFileSync(config.systemPromptFile, "utf-8").trim();
+      if (systemPrompt) parts.push(systemPrompt);
+    } catch {
+      // Continue with the task prompt if the system prompt file is unexpectedly unavailable.
+    }
+  } else if (config.systemPrompt?.trim()) {
+    parts.push(config.systemPrompt.trim());
+  }
+
+  if (config.prompt?.trim()) {
+    parts.push(`## User Request\n${config.prompt.trim()}`);
+  }
+
+  return parts.length > 0 ? parts.join("\n\n") : null;
+}
+
+function buildCopilotCommand(
+  config: AgentLaunchConfig,
+  options: { restoreSessionId?: string } = {},
+): string {
   const parts = [COPILOT_EXECUTABLE, "--no-auto-update"];
-  const copilotSessionId = restoreSessionId ?? makeCopilotSessionId(config.sessionId);
-  parts.push(`--resume=${shellEscape(copilotSessionId)}`);
+  const copilotSessionId = options.restoreSessionId ?? makeCopilotSessionId(config.sessionId);
+  if (options.restoreSessionId) {
+    parts.push(`--resume=${shellEscape(copilotSessionId)}`);
+  } else {
+    parts.push("--name", shellEscape(copilotSessionId));
+  }
 
   const model = getConfiguredModel(config);
   if (model) {
@@ -134,6 +163,13 @@ function buildCopilotCommand(config: AgentLaunchConfig, restoreSessionId?: strin
     parts.push("--allow-all");
   } else if (permissionMode === "auto-edit") {
     parts.push("--allow-tool=write");
+  }
+
+  if (!options.restoreSessionId) {
+    const initialPrompt = buildInitialPrompt(config);
+    if (initialPrompt) {
+      parts.push("--interactive", shellEscape(initialPrompt));
+    }
   }
 
   return parts.join(" ");
@@ -151,7 +187,7 @@ function createCopilotAgent(): Agent {
   return {
     name: pluginName,
     processName: pluginName,
-    promptDelivery: "post-launch",
+    promptDelivery: "inline",
 
     getLaunchCommand(config: AgentLaunchConfig): string {
       return buildCopilotCommand(config);
@@ -264,12 +300,15 @@ function createCopilotAgent(): Agent {
     },
 
     async getRestoreCommand(session: Session, project: ProjectConfig): Promise<string | null> {
-      return buildCopilotCommand({
-        sessionId: session.id,
-        projectConfig: project,
-        workspacePath: session.workspacePath ?? undefined,
-        issueId: session.issueId ?? undefined,
-      });
+      return buildCopilotCommand(
+        {
+          sessionId: session.id,
+          projectConfig: project,
+          workspacePath: session.workspacePath ?? undefined,
+          issueId: session.issueId ?? undefined,
+        },
+        { restoreSessionId: makeCopilotSessionId(session.id) },
+      );
     },
 
     async setupWorkspaceHooks(workspacePath: string, _config: WorkspaceHooksConfig): Promise<void> {

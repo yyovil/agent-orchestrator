@@ -138,6 +138,12 @@ function extractResumeId(command: string): string {
   return match[1];
 }
 
+function extractNameId(command: string): string {
+  const match = command.match(/--name '([^']+)'/);
+  if (!match?.[1]) throw new Error(`missing name id in ${command}`);
+  return match[1];
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockWhichSync.mockReset();
@@ -157,11 +163,11 @@ describe("manifest", () => {
 });
 
 describe("create", () => {
-  it("uses copilot as process name and post-launch prompt mode", () => {
+  it("uses copilot as process name and inline prompt mode", () => {
     const agent = create();
     expect(agent.name).toBe(pluginName);
     expect(agent.processName).toBe(pluginName);
-    expect(agent.promptDelivery).toBe("post-launch");
+    expect(agent.promptDelivery).toBe("inline");
   });
 
   it("exports plugin module shape", () => {
@@ -188,10 +194,10 @@ describe("detect", () => {
 describe("getLaunchCommand", () => {
   const agent = create();
 
-  it("uses interactive launch with a stable Copilot session id", () => {
+  it("uses interactive launch with a stable Copilot session name", () => {
     const cmd = agent.getLaunchCommand(makeLaunchConfig());
-    expect(cmd).toMatch(/^copilot --no-auto-update --resume='[0-9a-f-]+' --model 'gpt-5\.4'$/);
-    expect(extractResumeId(cmd)).toMatch(
+    expect(cmd).toMatch(/^copilot --no-auto-update --name '[0-9a-f-]+' --model 'gpt-5\.4'$/);
+    expect(extractNameId(cmd)).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
   });
@@ -223,18 +229,23 @@ describe("getLaunchCommand", () => {
     expect(cmd).toContain("--allow-tool=write");
   });
 
-  it("does not include prompt flags in launch command", () => {
+  it("passes the initial prompt to interactive mode", () => {
     const cmd = agent.getLaunchCommand(
       makeLaunchConfig({
         prompt: "Do work",
         systemPrompt: "You are helpful",
-        systemPromptFile: "/tmp/prompt.md",
       }),
     );
     expect(cmd).not.toContain(" -p ");
     expect(cmd).not.toContain(" --prompt");
-    expect(cmd).not.toContain(" -i ");
-    expect(cmd).not.toContain(" --interactive");
+    expect(cmd).toContain("--interactive 'You are helpful\n\n## User Request\nDo work'");
+  });
+
+  it("does not pass an interactive prompt when restoring", async () => {
+    const session = makeSession({ id: "sess-1", issueId: "123" });
+    const project = makeLaunchConfig().projectConfig;
+    const restore = await agent.getRestoreCommand?.(session, project);
+    expect(restore).not.toContain("--interactive");
   });
 });
 
@@ -446,7 +457,7 @@ describe("getSessionInfo", () => {
   it("returns the stable Copilot session id without summary or cost", async () => {
     const info = await agent.getSessionInfo(makeSession({ id: "sess-1" }));
     expect(info).toEqual({
-      agentSessionId: extractResumeId(
+      agentSessionId: extractNameId(
         agent.getLaunchCommand(makeLaunchConfig({ sessionId: "sess-1" })),
       ),
       summary: null,
@@ -461,8 +472,11 @@ describe("getRestoreCommand", () => {
     const session = makeSession({ id: "sess-1", issueId: "123" });
     const project = makeLaunchConfig().projectConfig;
     const restore = await agent.getRestoreCommand?.(session, project);
-    expect(restore).toBe(
-      agent.getLaunchCommand(makeLaunchConfig({ sessionId: "sess-1", issueId: "123" })),
+    expect(restore).toMatch(
+      /^copilot --no-auto-update --resume='[0-9a-f-]+' --model 'gpt-5\.4'$/,
+    );
+    expect(extractResumeId(restore ?? "")).toBe(
+      extractNameId(agent.getLaunchCommand(makeLaunchConfig({ sessionId: "sess-1" }))),
     );
   });
 });
