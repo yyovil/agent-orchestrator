@@ -347,7 +347,36 @@ describe("getSessionInfo", () => {
     expect(await agent.getSessionInfo(makeSession())).toBeNull();
   });
 
-  it("uses crush session title as summary", async () => {
+  it("uses crush session meta title as summary", async () => {
+    mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "crush" && args[0] === "session" && args[1] === "show") {
+        return Promise.resolve({
+          stdout: JSON.stringify({
+            meta: {
+              id: "abc1234",
+              uuid: CRUSH_SESSION_ID,
+              title: "Refactor auth module",
+            },
+            messages: [],
+          }),
+          stderr: "",
+        });
+      }
+      return Promise.reject(new Error("unexpected"));
+    });
+
+    const info = await agent.getSessionInfo(
+      makeSession({ metadata: { crushSessionId: "abc1234" } }),
+    );
+    expect(info).toEqual({
+      agentSessionId: CRUSH_SESSION_ID,
+      summary: "Refactor auth module",
+      summaryIsFallback: false,
+      metadata: { crushSessionId: CRUSH_SESSION_ID },
+    });
+  });
+
+  it("keeps compatibility with legacy top-level session fields", async () => {
     mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "crush" && args[0] === "session" && args[1] === "show") {
         return Promise.resolve({
@@ -365,10 +394,9 @@ describe("getSessionInfo", () => {
     const info = await agent.getSessionInfo(
       makeSession({ metadata: { crushSessionId: "abc1234" } }),
     );
-    expect(info).toEqual({
+    expect(info).toMatchObject({
       agentSessionId: CRUSH_SESSION_ID,
       summary: "Refactor auth module",
-      summaryIsFallback: false,
       metadata: { crushSessionId: CRUSH_SESSION_ID },
     });
   });

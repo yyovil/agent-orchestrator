@@ -49,11 +49,15 @@ interface CrushAgentConfig {
   crushSessionId?: unknown;
 }
 
-interface CrushSessionShowJson {
+interface CrushSessionMetadataJson {
   id?: unknown;
   uuid?: unknown;
   title?: unknown;
   summary?: unknown;
+}
+
+interface CrushSessionShowJson extends CrushSessionMetadataJson {
+  meta?: unknown;
 }
 
 function asCrushSessionId(raw: unknown): string | null {
@@ -69,6 +73,22 @@ function parseCrushSessionShowJson(text: string): CrushSessionShowJson | null {
   } catch {
     return null;
   }
+}
+
+function getCrushSessionMetadata(sessionInfo: CrushSessionShowJson | null): CrushSessionMetadataJson {
+  if (!sessionInfo) return {};
+
+  const nestedMeta =
+    sessionInfo.meta && typeof sessionInfo.meta === "object"
+      ? (sessionInfo.meta as CrushSessionMetadataJson)
+      : {};
+
+  return {
+    id: nestedMeta.id ?? sessionInfo.id,
+    uuid: nestedMeta.uuid ?? sessionInfo.uuid,
+    title: nestedMeta.title ?? sessionInfo.title,
+    summary: nestedMeta.summary ?? sessionInfo.summary,
+  };
 }
 
 async function fetchCrushSessionInfo(sessionId: string): Promise<CrushSessionShowJson | null> {
@@ -228,13 +248,14 @@ function createCrushAgent(): Agent {
       if (!sessionId) return null;
 
       const sessionInfo = await fetchCrushSessionInfo(sessionId);
+      const sessionMeta = getCrushSessionMetadata(sessionInfo);
       const parsedSessionId =
-        asCrushSessionId(sessionInfo?.uuid) ?? asCrushSessionId(sessionInfo?.id);
+        asCrushSessionId(sessionMeta.uuid) ?? asCrushSessionId(sessionMeta.id);
       const summary =
-        typeof sessionInfo?.title === "string" && sessionInfo.title.trim().length > 0
-          ? sessionInfo.title.trim()
-          : typeof sessionInfo?.summary === "string" && sessionInfo.summary.trim().length > 0
-            ? sessionInfo.summary.trim()
+        typeof sessionMeta.title === "string" && sessionMeta.title.trim().length > 0
+          ? sessionMeta.title.trim()
+          : typeof sessionMeta.summary === "string" && sessionMeta.summary.trim().length > 0
+            ? sessionMeta.summary.trim()
             : null;
 
       return {
