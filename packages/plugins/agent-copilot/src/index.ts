@@ -47,7 +47,7 @@ const COPILOT_SESSION_NAMESPACE = "ao-agent-copilot";
 const UUID_VERSION_8_CUSTOM = 0x80;
 
 const ANSI_ESCAPE_RE = new RegExp(
-  `${String.fromCharCode(27)}(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`,
+  `${String.fromCharCode(27)}(?:[@-Z\\-_]|\\[[0-?]*[ -/]*[@-~])`,
   "g",
 );
 

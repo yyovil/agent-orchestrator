@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AgentLaunchConfig, RuntimeHandle, Session } from "@aoagents/ao-core";
+import {
+  PROCESS_PROBE_INDETERMINATE,
+  isWindows,
+  type AgentLaunchConfig,
+  type RuntimeHandle,
+  type Session,
+} from "@aoagents/ao-core";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -57,7 +63,6 @@ vi.mock("node:child_process", () => ({
   },
 }));
 
-import { PROCESS_PROBE_INDETERMINATE, isWindows } from "@aoagents/ao-core";
 import { create, detect, manifest, default as defaultExport } from "./index.js";
 
 const itIfNotWindows = isWindows() ? it.skip : it;
