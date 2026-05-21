@@ -261,9 +261,7 @@ describe("getLaunchCommand", () => {
   const agent = create();
 
   it("generates base command with --work-dir", () => {
-    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe(
-      "kimi --work-dir '/workspace/repo'",
-    );
+    expect(agent.getLaunchCommand(makeLaunchConfig())).toBe("kimi --work-dir '/workspace/repo'");
   });
 
   it("adds --yolo when permissions=permissionless", () => {
@@ -381,9 +379,7 @@ describe("getEnvironment", () => {
 
   it("sets AO_ISSUE_ID only when provided", () => {
     expect(agent.getEnvironment(makeLaunchConfig()).AO_ISSUE_ID).toBeUndefined();
-    expect(agent.getEnvironment(makeLaunchConfig({ issueId: "GH-42" })).AO_ISSUE_ID).toBe(
-      "GH-42",
-    );
+    expect(agent.getEnvironment(makeLaunchConfig({ issueId: "GH-42" })).AO_ISSUE_ID).toBe("GH-42");
   });
 
   // PATH and GH_PATH are not set here — session-manager injects them for
@@ -464,11 +460,7 @@ describe("detectActivity", () => {
     // UI re-renders `kimi>` on the last line as part of the prompt chrome.
     // Old ordering (idle-first) misclassified this as idle and left the
     // session hanging. Actionable states MUST win.
-    const output = [
-      "Allow file write?",
-      "(Y)es/(N)o",
-      "kimi> ",
-    ].join("\n");
+    const output = ["Allow file write?", "(Y)es/(N)o", "kimi> "].join("\n");
     expect(agent.detectActivity(output)).toBe("waiting_input");
   });
 
@@ -739,9 +731,7 @@ describe("getActivityState", () => {
     );
 
     mockTmuxWithProcess("kimi");
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: realWorkspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: realWorkspace }));
     expect(info?.agentSessionId).toBe("pinned-uuid");
   });
 
@@ -751,9 +741,7 @@ describe("getActivityState", () => {
     writeKimiSession(realWorkspace, "ao-spawned");
 
     mockTmuxWithProcess("kimi");
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: realWorkspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: realWorkspace }));
     expect(info?.agentSessionId).toBe("ao-spawned");
 
     const pin = JSON.parse(
@@ -782,9 +770,7 @@ describe("getActivityState", () => {
 
     mockTmuxWithProcess("kimi");
     _resetSessionMatchCache();
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: realWorkspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: realWorkspace }));
     expect(info?.agentSessionId).toBe("ao-original");
   });
 
@@ -826,9 +812,7 @@ describe("getActivityState", () => {
       }),
     );
 
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: realWorkspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: realWorkspace }));
     expect(info?.agentSessionId).toBe("ao-launched-uuid");
   });
 
@@ -869,9 +853,7 @@ describe("getActivityState", () => {
     writeKimiSession(realWorkspace, "ao-spawned");
 
     mockTmuxWithProcess("kimi");
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: realWorkspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: realWorkspace }));
     expect(info?.agentSessionId).toBe("ao-spawned");
   });
 
@@ -894,9 +876,7 @@ describe("getActivityState", () => {
     writeKimiSession(realWorkspace, "kimi-just-created-this");
 
     mockTmuxWithProcess("kimi");
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: realWorkspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: realWorkspace }));
     // The newly-created UUID must NOT have been treated as pre-existing —
     // pre-launch baseline didn't see it. Discovery must attach to it.
     expect(info?.agentSessionId).toBe("kimi-just-created-this");
@@ -939,9 +919,7 @@ describe("getActivityState", () => {
     );
 
     mockTmuxWithProcess("kimi");
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: realWorkspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: realWorkspace }));
     expect(info).toBeNull();
   });
 
@@ -1104,7 +1082,6 @@ describe("getSessionInfo", () => {
     expect(info).not.toBeNull();
     expect(info!.agentSessionId).toBe("6ec34626-aedf-4659-a061-c5fbfa4cf166");
     expect(info!.summaryIsFallback).toBe(true);
-    expect(info!.cost).toBeUndefined();
   });
 
   it("extracts the first user input from wire.jsonl as a summary", async () => {
@@ -1159,9 +1136,7 @@ describe("getSessionInfo", () => {
     writeFileSync(
       join(fakeHome, ".kimi", "kimi.json"),
       JSON.stringify({
-        work_dirs: [
-          { path: realWorkspace, kaos: "local", last_session_id: "older-uuid" },
-        ],
+        work_dirs: [{ path: realWorkspace, kaos: "local", last_session_id: "older-uuid" }],
       }),
     );
 
@@ -1183,15 +1158,11 @@ describe("getSessionInfo", () => {
     writeFileSync(
       join(fakeHome, ".kimi", "kimi.json"),
       JSON.stringify({
-        work_dirs: [
-          { path: realWorkspace, kaos: "local", last_session_id: null },
-        ],
+        work_dirs: [{ path: realWorkspace, kaos: "local", last_session_id: null }],
       }),
     );
 
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: realWorkspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: realWorkspace }));
     expect(info?.agentSessionId).toBe("only-uuid");
   });
 
@@ -1199,9 +1170,7 @@ describe("getSessionInfo", () => {
     // No kimi.json exists — hash-based discovery should still work.
     writeKimiSession(workspace, "hash-found-uuid");
 
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: workspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: workspace }));
     expect(info?.agentSessionId).toBe("hash-found-uuid");
   });
 
@@ -1235,15 +1204,11 @@ describe("getSessionInfo", () => {
     writeFileSync(
       join(fakeHome, ".kimi", "kimi.json"),
       JSON.stringify({
-        work_dirs: [
-          { path: realWorkspace, kaos: "local", last_session_id: "stale-uuid" },
-        ],
+        work_dirs: [{ path: realWorkspace, kaos: "local", last_session_id: "stale-uuid" }],
       }),
     );
 
-    const info = await agent.getSessionInfo(
-      makeSession({ workspacePath: realWorkspace }),
-    );
+    const info = await agent.getSessionInfo(makeSession({ workspacePath: realWorkspace }));
     expect(info?.agentSessionId).toBe("ao-spawned");
 
     // And the AO pin file must record "ao-spawned", not "stale-uuid" —
@@ -1272,9 +1237,7 @@ describe("getSessionInfo", () => {
     writeFileSync(
       join(fakeHome, ".kimi", "kimi.json"),
       JSON.stringify({
-        work_dirs: [
-          { path: realWorkspace, kaos: "local", last_session_id: "old-uuid" },
-        ],
+        work_dirs: [{ path: realWorkspace, kaos: "local", last_session_id: "old-uuid" }],
       }),
     );
 
@@ -1315,7 +1278,10 @@ describe("getSessionInfo", () => {
     // wire.jsonl and must refuse.
     writeFileSync(join(sessionDir, "context.jsonl"), '{"role":"_system_prompt"}\n');
     const decoy = join(fakeHome, "decoy-wire.txt");
-    writeFileSync(decoy, '{"timestamp":1,"message":{"type":"TurnBegin","payload":{"user_input":"leaked"}}}\n');
+    writeFileSync(
+      decoy,
+      '{"timestamp":1,"message":{"type":"TurnBegin","payload":{"user_input":"leaked"}}}\n',
+    );
     symlinkSync(decoy, join(sessionDir, "wire.jsonl"));
 
     const info = await agent.getSessionInfo(makeSession({ workspacePath: workspace }));
@@ -1427,7 +1393,10 @@ describe("workspace hooks", () => {
   const agent = create();
 
   it("setupWorkspaceHooks delegates to setupPathWrapperWorkspace", async () => {
-    await agent.setupWorkspaceHooks!("/workspace/test", { dataDir: "/tmp/ao-data", sessionId: "s" });
+    await agent.setupWorkspaceHooks!("/workspace/test", {
+      dataDir: "/tmp/ao-data",
+      sessionId: "s",
+    });
     expect(mockSetupPathWrapperWorkspace).toHaveBeenCalledWith("/workspace/test");
   });
 
@@ -1486,8 +1455,7 @@ describe("detect", () => {
     // contains plain "kimi" but no kimi-cli / kimi-code / moonshot marker.
     const { execFileSync } = await import("node:child_process");
     vi.mocked(execFileSync).mockImplementationOnce(
-      () =>
-        "kimi v0.1 — keyboard input manager\n" as unknown as ReturnType<typeof execFileSync>,
+      () => "kimi v0.1 — keyboard input manager\n" as unknown as ReturnType<typeof execFileSync>,
     );
     expect(detect()).toBe(false);
   });

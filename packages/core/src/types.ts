@@ -311,7 +311,7 @@ export interface Session {
   /** Runtime handle for communicating with the session */
   runtimeHandle: RuntimeHandle | null;
 
-  /** Agent session info (summary, cost, etc.) */
+  /** Agent session info (summary and native restore metadata) */
   agentInfo: AgentSessionInfo | null;
 
   /** When the session was created */
@@ -515,7 +515,7 @@ export interface Agent {
    */
   isProcessRunning(handle: RuntimeHandle): Promise<ProcessProbeResult>;
 
-  /** Extract information from agent's internal data (summary, cost, session ID) */
+  /** Extract lightweight information from agent-owned metadata (summary and native session ID) */
   getSessionInfo(session: Session): Promise<AgentSessionInfo | null>;
 
   /**
@@ -636,14 +636,6 @@ export interface AgentSessionInfo {
   agentSessionId: string | null;
   /** Agent-owned metadata worth persisting for later restore. */
   metadata?: Record<string, string>;
-  /** Estimated cost so far */
-  cost?: CostEstimate;
-}
-
-export interface CostEstimate {
-  inputTokens: number;
-  outputTokens: number;
-  estimatedCostUsd: number;
 }
 
 // =============================================================================

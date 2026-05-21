@@ -155,7 +155,6 @@ interface Agent {
 
   // Optional
   postLaunchSetup?(session: Session): Promise<void>;
-  estimateCost?(session: Session): Promise<CostEstimate>;
 }
 ```
 
