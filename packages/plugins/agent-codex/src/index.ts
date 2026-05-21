@@ -639,17 +639,12 @@ function buildCodexSessionInfo(params: {
 
 function buildMetadataOnlySessionInfo(session: Session): AgentSessionInfo | null {
   const threadId = getSessionMetadataString(session, "codexThreadId");
-  if (!threadId) return null;
-
-  const model = getSessionMetadataString(session, "codexModel");
-  if (!model && !isTerminalOrRuntimeMissing(session)) {
-    return null;
-  }
+  if (!threadId || !isTerminalOrRuntimeMissing(session)) return null;
 
   return buildCodexSessionInfo({
     agentSessionId: threadId,
     threadId,
-    model,
+    model: getSessionMetadataString(session, "codexModel"),
   });
 }
 

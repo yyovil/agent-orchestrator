@@ -1200,6 +1200,47 @@ describe("getSessionInfo", () => {
     expect(mockOpen).not.toHaveBeenCalled();
   });
 
+  it("still streams JSONL for live sessions that already have codexModel metadata", async () => {
+    const sessionContent = jsonl(
+      {
+        type: "session_meta",
+        payload: { id: "thread-live-with-model" },
+      },
+      {
+        type: "turn_context",
+        payload: { model: "gpt-5.5" },
+      },
+      {
+        type: "event_msg",
+        msg: {
+          type: "token_count",
+          input_tokens: 100,
+          output_tokens: 50,
+        },
+      },
+    );
+
+    mockReaddir.mockResolvedValue(["rollout-2026-05-22T00-00-00-thread-live-with-model.jsonl"]);
+    setupMockStream(sessionContent);
+
+    const result = await agent.getSessionInfo(
+      makeSession({
+        status: "working",
+        activity: "active",
+        metadata: { codexThreadId: "thread-live-with-model", codexModel: "gpt-5.4" },
+      }),
+    );
+
+    expect(result).toMatchObject({
+      summary: "Codex session (gpt-5.5)",
+      agentSessionId: "rollout-2026-05-22T00-00-00-thread-live-with-model",
+      metadata: { codexThreadId: "thread-live-with-model", codexModel: "gpt-5.5" },
+      cost: { inputTokens: 100, outputTokens: 50 },
+    });
+    expect(mockCreateReadStream).toHaveBeenCalledTimes(1);
+    expect(mockOpen).not.toHaveBeenCalled();
+  });
+
   it("caches streamed session data for repeated getSessionInfo calls", async () => {
     const sessionContent = jsonl(
       {
