@@ -1702,9 +1702,13 @@ describe("getSessionInfo", () => {
     const closeSpy = vi.fn();
     mockCreateInterface.mockImplementationOnce(() => ({
       close: closeSpy,
-      async *[Symbol.asyncIterator]() {
-        await gate;
-        throw new Error("aborted");
+      [Symbol.asyncIterator]() {
+        return {
+          async next() {
+            await gate;
+            throw new Error("aborted");
+          },
+        };
       },
     }));
 
