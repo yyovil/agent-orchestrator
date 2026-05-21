@@ -174,10 +174,12 @@ async function gatherSessionInfo(
           defaults: projectConfig.defaults,
           allSessionPrefixes,
         }).agentName
-      : projectConfig.defaults.agent;
-    const agent = getAgentByNameFromRegistry(registry, agentName);
-    const introspection = await agent.getSessionInfo(session);
-    claudeSummary = introspection?.summary ?? null;
+      : session.metadata["agent"];
+    if (agentName) {
+      const agent = getAgentByNameFromRegistry(registry, agentName);
+      const introspection = await agent.getSessionInfo(session);
+      claudeSummary = introspection?.summary ?? null;
+    }
   } catch {
     // Summary extraction failed — not critical
   }

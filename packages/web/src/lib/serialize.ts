@@ -559,7 +559,7 @@ function prepareSessionMetadataEnrichment(
           defaults: config.defaults,
           allSessionPrefixes,
         }).agentName
-      : (core.metadata["agent"] ?? config.defaults.agent);
+      : core.metadata["agent"];
     if (!agentName) return Promise.resolve();
     const agent = registry.get<Agent>("agent", agentName);
     if (!agent) return Promise.resolve();

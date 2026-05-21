@@ -1268,24 +1268,6 @@ describe("enrichSessionsMetadata", () => {
     expect(dashboard.summary).toBe("Orphan Goose summary");
   });
 
-  it("falls back to the default agent for projectless legacy sessions without persisted agent", async () => {
-    const agent = mockAgent("Default summary");
-    const registry = mockRegistry(null, agent);
-    const noProjectsConfig = {
-      ...testConfig,
-      projects: {},
-    } as OrchestratorConfig;
-
-    const core = createCoreSession({ projectId: "deleted", metadata: {} });
-    const dashboard = sessionToDashboard(core);
-
-    await enrichSessionsMetadata([core], [dashboard], noProjectsConfig, registry);
-
-    expect(registry.get).toHaveBeenCalledWith("agent", "mock-agent");
-    expect(agent.getSessionInfo).toHaveBeenCalledWith(core);
-    expect(dashboard.summary).toBe("Default summary");
-  });
-
   it("should use default agent when project has no agent override", async () => {
     const tracker = mockTracker();
     const agent = mockAgent("From default agent");

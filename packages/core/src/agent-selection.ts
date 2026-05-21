@@ -29,6 +29,11 @@ export function resolveSessionRole(
     : "worker";
 }
 
+/**
+ * Resolve the agent identity for a session metadata record. Normalized Session
+ * objects are expected to carry metadata.agent; fallback resolution exists only
+ * for legacy raw metadata read/repair boundaries.
+ */
 export function resolveAgentSelectionForSession(params: {
   sessionId: string;
   metadata?: Record<string, string>;
