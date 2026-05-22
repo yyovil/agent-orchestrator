@@ -947,7 +947,7 @@ describe("TerminalManager.open — tmux target args (regression for #1714)", () 
     expect(mouseCall?.[1]).toEqual(["set-option", "-t", "ao-177", "mouse", "on"]);
   });
 
-  it("invokes set-option status off with the bare session id (no = prefix)", () => {
+  it("invokes set-option status on with the bare session id (no = prefix)", () => {
     const mgr = new TerminalManager("/usr/bin/tmux");
     mgr.open("ao-177");
 
@@ -955,7 +955,7 @@ describe("TerminalManager.open — tmux target args (regression for #1714)", () 
       (call) => Array.isArray(call[1]) && call[1].includes("status"),
     );
     expect(statusCall).toBeDefined();
-    expect(statusCall?.[1]).toEqual(["set-option", "-t", "ao-177", "status", "off"]);
+    expect(statusCall?.[1]).toEqual(["set-option", "-t", "ao-177", "status", "on"]);
   });
 
   it("still uses the = exact-match prefix for attach-session", () => {

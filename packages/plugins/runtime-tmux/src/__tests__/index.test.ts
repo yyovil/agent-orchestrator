@@ -83,7 +83,7 @@ describe("runtime.create()", () => {
   it("calls new-session with correct args", async () => {
     const runtime = create();
 
-    // 1: new-session (with launch command as initial), 2: set-option status off
+    // 1: new-session (with launch command as initial), 2: set-option status on
     mockTmuxSuccess();
     mockTmuxSuccess();
 
@@ -115,25 +115,25 @@ describe("runtime.create()", () => {
     );
   });
 
-  it("disables the tmux status bar immediately after new-session", async () => {
+  it("enables the tmux status bar immediately after new-session", async () => {
     const runtime = create();
 
-    // 1: new-session, 2: set-option status off
+    // 1: new-session, 2: set-option status on
     mockTmuxSuccess();
     mockTmuxSuccess();
 
     await runtime.create({
-      sessionId: "status-bar-off",
+      sessionId: "status-bar-on",
       workspacePath: "/tmp/ws",
       launchCommand: "echo hi",
       environment: {},
     });
 
-    // Second call must be set-option ... status off, scoped to the session
+    // Second call must be set-option ... status on, scoped to the session
     expect(mockExecFileCustom).toHaveBeenNthCalledWith(
       2,
       "tmux",
-      ["set-option", "-t", "status-bar-off", "status", "off"],
+      ["set-option", "-t", "status-bar-on", "status", "on"],
       expectedTmuxOptions,
     );
   });

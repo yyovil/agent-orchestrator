@@ -114,12 +114,11 @@ export function create(): Runtime {
         shellCommand,
       );
 
-      // Hide the tmux status bar — sessions are embedded in the web terminal,
-      // and the green bar at the bottom is visual noise (and racy with the
-      // web layer's own set-option call, which only fires on WebSocket connect).
+      // Keep the tmux status bar visible in this fork so raw tmux attaches and
+      // the embedded web terminal expose the same session context.
       // Kill the session if this fails so we don't leave an orphaned tmux process.
       try {
-        await tmux("set-option", "-t", sessionName, "status", "off");
+        await tmux("set-option", "-t", sessionName, "status", "on");
       } catch (err: unknown) {
         try {
           await tmux("kill-session", "-t", sessionName);
