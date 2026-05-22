@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { connect as netConnect } from "node:net";
+import { userInfo } from "node:os";
 import chalk from "chalk";
 import type { Command } from "commander";
 import {
@@ -29,6 +30,22 @@ interface SessionListEntry {
   pr: string | null;
   workspacePath: string | null;
   lastActivityAt: string | null;
+}
+
+function zellijControlEnv(socketDir?: unknown): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (typeof socketDir === "string" && socketDir.length > 0) {
+    env.ZELLIJ_SOCKET_DIR = socketDir;
+  } else if (!env.ZELLIJ_SOCKET_DIR) {
+    env.ZELLIJ_SOCKET_DIR = `/tmp/aoz${userInfo().uid}`;
+  }
+  // If the caller is already inside Zellij, inherited ZELLIJ_* variables make
+  // nested `zellij` commands target the parent session. Clear them so attach
+  // addresses the AO-managed session by name.
+  delete env.ZELLIJ;
+  delete env.ZELLIJ_PANE_ID;
+  delete env.ZELLIJ_SESSION_NAME;
+  return env;
 }
 
 export function registerSession(program: Command): void {
@@ -314,9 +331,32 @@ export function registerSession(program: Command): void {
         // Keep process alive until pipe closes
         await new Promise(() => {});
       } else {
+        const runtimeName = sessionInfo?.runtimeHandle?.runtimeName;
+
+        if (runtimeName === "zellij") {
+          const zellijTarget = sessionInfo?.runtimeHandle?.id ?? sessionName;
+          await new Promise<void>((resolve, reject) => {
+            const child = spawn("zellij", ["attach", zellijTarget], {
+              stdio: "inherit",
+              env: zellijControlEnv(sessionInfo?.runtimeHandle?.data?.socketDir),
+            });
+            child.once("error", (err) => reject(err));
+            child.once("exit", (code) => {
+              if (code === 0 || code === null) {
+                resolve();
+                return;
+              }
+              reject(new Error(`zellij attach exited with code ${code}`));
+            });
+          }).catch((err) => {
+            console.error(chalk.red(`Failed to attach to session ${sessionName}: ${err}`));
+            process.exit(1);
+          });
+          return;
+        }
+
         // Unix: tmux attach (unchanged)
         const tmuxTarget = sessionInfo?.runtimeHandle?.id ?? sessionName;
-
         const exists = await tmux("has-session", "-t", tmuxTarget);
         if (exists === null) {
           console.error(chalk.red(`Session '${sessionName}' does not exist`));
