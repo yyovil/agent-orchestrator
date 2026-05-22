@@ -1,5 +1,5 @@
 ---
-"@aoagents/ao-core": patch
+"@aoagents/ao-core": minor
 "@aoagents/ao-cli": patch
 "@aoagents/ao-web": patch
 "@aoagents/ao-plugin-runtime-zellij": patch

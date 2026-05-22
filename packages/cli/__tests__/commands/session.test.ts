@@ -265,6 +265,9 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env["HOME"] = originalHome;
+  delete process.env["ZELLIJ"];
+  delete process.env["ZELLIJ_PANE_ID"];
+  delete process.env["ZELLIJ_SESSION_NAME"];
   // Clean up hash-based directories in ~/.agent-orchestrator
   const projectBaseDir = getProjectBaseDir(STORAGE_KEY);
   if (existsSync(projectBaseDir)) {
@@ -746,6 +749,47 @@ describe("session attach", () => {
     expect(mockSpawn).toHaveBeenCalledWith("tmux", ["attach", "-t", "tmux-target-1"], {
       stdio: "inherit",
     });
+  });
+
+  it("attaches to zellij sessions with the captured socket dir", async () => {
+    process.env["ZELLIJ"] = "0";
+    process.env["ZELLIJ_PANE_ID"] = "1";
+    process.env["ZELLIJ_SESSION_NAME"] = "parent";
+    mockSessionManager.get.mockResolvedValue({
+      id: "app-1",
+      projectId: "my-app",
+      status: "working",
+      activity: null,
+      branch: null,
+      issueId: null,
+      pr: null,
+      workspacePath: null,
+      runtimeHandle: {
+        id: "zellij-target-1",
+        runtimeName: "zellij",
+        data: { socketDir: "/tmp/aoz-custom" },
+      },
+      agentInfo: null,
+      createdAt: new Date(),
+      lastActivityAt: new Date(),
+      metadata: {},
+    } satisfies Session);
+
+    await program.parseAsync(["node", "test", "session", "attach", "app-1"]);
+
+    expect(mockTmux).not.toHaveBeenCalledWith("has-session", "-t", "zellij-target-1");
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "zellij",
+      ["attach", "zellij-target-1"],
+      expect.objectContaining({
+        stdio: "inherit",
+        env: expect.objectContaining({ ZELLIJ_SOCKET_DIR: "/tmp/aoz-custom" }),
+      }),
+    );
+    const options = mockSpawn.mock.calls[0][2] as { env: NodeJS.ProcessEnv };
+    expect(options.env.ZELLIJ).toBeUndefined();
+    expect(options.env.ZELLIJ_PANE_ID).toBeUndefined();
+    expect(options.env.ZELLIJ_SESSION_NAME).toBeUndefined();
   });
 
   it("fails when tmux session does not exist", async () => {

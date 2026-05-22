@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as childProcess from "node:child_process";
 import * as fs from "node:fs";
-import type { RuntimeHandle } from "@aoagents/ao-core";
+import type { PreflightContext, RuntimeHandle } from "@aoagents/ao-core";
+
+const { mockIsWindows, mockIsMac } = vi.hoisted(() => ({
+  mockIsWindows: vi.fn().mockReturnValue(false),
+  mockIsMac: vi.fn().mockReturnValue(false),
+}));
 
 vi.mock("node:child_process", () => {
   const mockExecFile = vi.fn();
@@ -22,6 +27,16 @@ vi.mock("node:fs", () => ({
 vi.mock("node:timers/promises", () => ({
   setTimeout: vi.fn(() => Promise.resolve()),
 }));
+
+vi.mock("@aoagents/ao-core", async (importOriginal) => {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+  const actual = await importOriginal<typeof import("@aoagents/ao-core")>();
+  return {
+    ...actual,
+    isWindows: () => mockIsWindows(),
+    isMac: () => mockIsMac(),
+  };
+});
 
 const mockExecFileCustom = (childProcess.execFile as any)[
   Symbol.for("nodejs.util.promisify.custom")
@@ -54,9 +69,12 @@ function makeHandle(overrides: Partial<RuntimeHandle> = {}): RuntimeHandle {
 import zellijPlugin, { create, manifest } from "../index.js";
 
 const originalEnv = { ...process.env };
+const preflightContext = {} as PreflightContext;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockIsWindows.mockReturnValue(false);
+  mockIsMac.mockReturnValue(false);
   process.env = { ...originalEnv };
 });
 
@@ -178,7 +196,7 @@ describe("runtime.create()", () => {
         sessionId: "cleanup-session",
         workspacePath: "/tmp/workspace",
         launchCommand: "echo hello",
-        environment: {},
+        environment: { ZELLIJ_SOCKET_DIR: "/tmp/custom-zellij" },
       }),
     ).rejects.toThrow('Failed to launch Zellij session "cleanup-session"');
 
@@ -186,7 +204,11 @@ describe("runtime.create()", () => {
     expect(mockExecFileCustom).toHaveBeenLastCalledWith(
       "zellij",
       ["kill-session", "cleanup-session"],
-      expectedZellijOptions,
+      expect.objectContaining({
+        env: expect.objectContaining({ ZELLIJ_SOCKET_DIR: "/tmp/custom-zellij" }),
+        timeout: 5_000,
+        windowsHide: true,
+      }),
     );
   });
 });
@@ -296,5 +318,42 @@ describe("runtime.getAttachInfo()", () => {
       target: "test-session",
       command: "ZELLIJ_SOCKET_DIR='/tmp/aoz-test' zellij attach 'test-session'",
     });
+  });
+});
+
+describe("runtime.preflight()", () => {
+  it("rejects native Windows", async () => {
+    mockIsWindows.mockReturnValue(true);
+    const runtime = create();
+
+    await expect(runtime.preflight!(preflightContext)).rejects.toThrow(
+      "Zellij runtime is not supported on native Windows",
+    );
+    expect(mockExecFileCustom).not.toHaveBeenCalled();
+  });
+
+  it("uses the Homebrew install hint on macOS when zellij is missing", async () => {
+    mockIsMac.mockReturnValue(true);
+    const runtime = create();
+    mockZellijError("ENOENT");
+
+    await expect(runtime.preflight!(preflightContext)).rejects.toThrow("brew install zellij");
+    expect(mockExecFileCustom).toHaveBeenCalledWith("zellij", ["--version"], expectedZellijOptions);
+  });
+
+  it("uses the generic install hint on non-macOS when zellij is missing", async () => {
+    const runtime = create();
+    mockZellijError("ENOENT");
+
+    await expect(runtime.preflight!(preflightContext)).rejects.toThrow(
+      "zellij.dev/documentation/installation",
+    );
+  });
+
+  it("passes when zellij is available", async () => {
+    const runtime = create();
+    mockZellijSuccess("zellij 0.44.3");
+
+    await expect(runtime.preflight!(preflightContext)).resolves.toBeUndefined();
   });
 });

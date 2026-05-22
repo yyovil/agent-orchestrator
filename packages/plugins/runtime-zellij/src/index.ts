@@ -20,7 +20,6 @@ import {
 const execFileAsync = promisify(execFile);
 const ZELLIJ_COMMAND_TIMEOUT_MS = 5_000;
 const ZELLIJ_PASTE_CHUNK_SIZE = 16_000;
-const DEFAULT_ZELLIJ_SOCKET_DIR = `/tmp/aoz${userInfo().uid}`;
 
 export const manifest = {
   name: "zellij",
@@ -70,11 +69,22 @@ function buildLayout(scriptPath: string): string {
   ].join("\n");
 }
 
+function getDefaultZellijSocketDir(): string {
+  if (typeof process.getuid === "function") return `/tmp/aoz${process.getuid()}`;
+
+  try {
+    return `/tmp/aoz${userInfo().uid}`;
+  } catch {
+    return join(tmpdir(), "ao-zellij");
+  }
+}
+
 function zellijEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
-  if (!env.ZELLIJ_SOCKET_DIR) env.ZELLIJ_SOCKET_DIR = DEFAULT_ZELLIJ_SOCKET_DIR;
-  if (env.ZELLIJ_SOCKET_DIR === DEFAULT_ZELLIJ_SOCKET_DIR) {
-    mkdirSync(DEFAULT_ZELLIJ_SOCKET_DIR, { recursive: true, mode: 0o700 });
+  const defaultSocketDir = getDefaultZellijSocketDir();
+  if (!env.ZELLIJ_SOCKET_DIR) env.ZELLIJ_SOCKET_DIR = defaultSocketDir;
+  if (env.ZELLIJ_SOCKET_DIR === defaultSocketDir) {
+    mkdirSync(defaultSocketDir, { recursive: true, mode: 0o700 });
   }
   // If AO itself is running inside Zellij, inherited ZELLIJ_* variables make
   // `zellij --layout ...` add panes to the parent session instead of creating
@@ -109,7 +119,7 @@ function getPaneId(handle: RuntimeHandle): string {
 }
 
 function socketDirFromUnknown(value: unknown): string {
-  return typeof value === "string" && value.length > 0 ? value : DEFAULT_ZELLIJ_SOCKET_DIR;
+  return typeof value === "string" && value.length > 0 ? value : getDefaultZellijSocketDir();
 }
 
 function getSocketDir(handle: RuntimeHandle): string {
@@ -196,7 +206,7 @@ export function create(): Runtime {
           // The launch script deletes itself when Zellij starts it.
         }
         try {
-          await zellij(["kill-session", sessionName]);
+          await zellij(["kill-session", sessionName], { socketDir });
         } catch {
           // Best-effort cleanup.
         }

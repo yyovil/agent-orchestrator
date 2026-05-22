@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { connect as netConnect } from "node:net";
-import { userInfo } from "node:os";
+import { tmpdir, userInfo } from "node:os";
+import { join } from "node:path";
 import chalk from "chalk";
 import type { Command } from "commander";
 import {
@@ -37,7 +38,7 @@ function zellijControlEnv(socketDir?: unknown): NodeJS.ProcessEnv {
   if (typeof socketDir === "string" && socketDir.length > 0) {
     env.ZELLIJ_SOCKET_DIR = socketDir;
   } else if (!env.ZELLIJ_SOCKET_DIR) {
-    env.ZELLIJ_SOCKET_DIR = `/tmp/aoz${userInfo().uid}`;
+    env.ZELLIJ_SOCKET_DIR = getDefaultZellijSocketDir();
   }
   // If the caller is already inside Zellij, inherited ZELLIJ_* variables make
   // nested `zellij` commands target the parent session. Clear them so attach
@@ -46,6 +47,16 @@ function zellijControlEnv(socketDir?: unknown): NodeJS.ProcessEnv {
   delete env.ZELLIJ_PANE_ID;
   delete env.ZELLIJ_SESSION_NAME;
   return env;
+}
+
+function getDefaultZellijSocketDir(): string {
+  if (typeof process.getuid === "function") return `/tmp/aoz${process.getuid()}`;
+
+  try {
+    return `/tmp/aoz${userInfo().uid}`;
+  } catch {
+    return join(tmpdir(), "ao-zellij");
+  }
 }
 
 export function registerSession(program: Command): void {
