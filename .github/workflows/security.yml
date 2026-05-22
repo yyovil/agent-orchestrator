@@ -83,6 +83,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Dependency Review
+        # The action exits with "Dependency review is not supported on this
+        # repository" when GitHub's Dependency graph is disabled for a fork or
+        # mirror. Keep the advisory output when supported, but do not make every
+        # PR unmergeable in repositories where that org/repo setting is off.
+        continue-on-error: true
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: moderate
