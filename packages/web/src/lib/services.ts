@@ -34,6 +34,7 @@ import {
 
 // Static plugin imports — webpack needs these to be string literals
 import pluginRuntimeTmux from "@aoagents/ao-plugin-runtime-tmux";
+import pluginRuntimeZellij from "@aoagents/ao-plugin-runtime-zellij";
 import pluginRuntimeProcess from "@aoagents/ao-plugin-runtime-process";
 import pluginAgentClaudeCode from "@aoagents/ao-plugin-agent-claude-code";
 import pluginAgentCodex from "@aoagents/ao-plugin-agent-codex";
@@ -107,6 +108,7 @@ async function initServices(): Promise<Services> {
 
   // Register plugins explicitly (webpack can't handle dynamic import() in core)
   registry.register(pluginRuntimeTmux);
+  registry.register(pluginRuntimeZellij);
   registry.register(pluginRuntimeProcess);
   registry.register(pluginAgentClaudeCode);
   registry.register(pluginAgentCodex);
